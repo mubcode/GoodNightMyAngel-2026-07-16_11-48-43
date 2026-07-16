@@ -161,7 +161,7 @@ namespace GoodNightMyAngel.EditorTools
             aimIndicator.name = "AimIndicator";
             // Collider kaldır
             var aimCol = aimIndicator.GetComponent<Collider>();
-            if (aimCol != null) Destroy(aimCol);
+            if (aimCol != null) Object.DestroyImmediate(aimCol);
             // Capsule'in child'ı olarak ekle, ön tarafa konumlandır
             aimIndicator.transform.SetParent(player.transform, false);
             // Cylinder default Y ekseninde duruyor; onu yatırıp Z yönüne çevir
@@ -178,7 +178,7 @@ namespace GoodNightMyAngel.EditorTools
             var aimTip = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             aimTip.name = "AimTip";
             var tipCol = aimTip.GetComponent<Collider>();
-            if (tipCol != null) Destroy(tipCol);
+            if (tipCol != null) Object.DestroyImmediate(tipCol);
             aimTip.transform.SetParent(player.transform, false);
             aimTip.transform.localPosition = new Vector3(0, 0.5f, 1.3f);
             aimTip.transform.localScale = new Vector3(0.25f, 0.25f, 0.25f);
