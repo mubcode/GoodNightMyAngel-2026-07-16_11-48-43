@@ -202,7 +202,9 @@ namespace GoodNightMyAngel.EditorTools
             cam.backgroundColor = new Color(0.05f, 0.05f, 0.1f);
             cam.transform.position = new Vector3(0, 12, -8);
             cam.transform.rotation = Quaternion.Euler(55, 0, 0);
-            camGo.AddComponent<AudioListener>();
+            // Eğer sahnede zaten AudioListener varsa ekleme (sadece 1 tane olabilir)
+            if (FindFirstObjectByType<AudioListener>() == null)
+                camGo.AddComponent<AudioListener>();
             var tdc = camGo.AddComponent<TopDownCamera>();
             tdc.target = player.transform;
 

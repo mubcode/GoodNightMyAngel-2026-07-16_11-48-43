@@ -189,6 +189,12 @@ namespace GoodNightMyAngel.Build
                 return;
             }
 
+            // PAUSE sırasında ghost'u yerinde dondur (mouse takip etmesin)
+            if (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused)
+            {
+                return;
+            }
+
             for (int i = 0; i < 9; i++)
             {
                 if (LegacyInputBridge.GetKeyDown(KeyCode.Alpha1 + i) && i < catalog.Count)
@@ -486,10 +492,12 @@ namespace GoodNightMyAngel.Build
                 _selectedItem = null;
             }
 
-            // Sağ tık: inşa modundan çık (katalog seçimini temizle)
+            // Sağ tık: inşa modundan çık (katalog seçimini temizle) + ghost gizle
             if (_selectedIndex >= 0)
             {
                 _selectedIndex = -1;
+                if (_ghostObj != null) _ghostObj.SetActive(false);
+                if (_hoverSquareObj != null) _hoverSquareObj.SetActive(false);
                 if (DebugOverlay.Instance != null)
                     DebugOverlay.Instance.Log(LogCategory.Build, "İnşa modundan çıkıldı.", false);
             }
@@ -502,6 +510,7 @@ namespace GoodNightMyAngel.Build
             _selectedIndex = -1;
             _selectedItem = null;
             if (_ghostObj != null) _ghostObj.SetActive(false);
+            if (_hoverSquareObj != null) _hoverSquareObj.SetActive(false);
             UpdateHud();
         }
 
