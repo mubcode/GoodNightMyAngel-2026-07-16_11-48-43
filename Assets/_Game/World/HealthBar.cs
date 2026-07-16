@@ -16,6 +16,7 @@
 // ayarlanabilir.
 // =============================================================================
 
+using System;
 using UnityEngine;
 using GoodNightMyAngel.Core;
 

@@ -19,6 +19,7 @@ using UnityEngine;
 using GoodNightMyAngel.Core;
 using GoodNightMyAngel.Combat;
 using GoodNightMyAngel.Enemies;
+using GoodNightMyAngel.World;
 
 namespace GoodNightMyAngel.Build
 {
