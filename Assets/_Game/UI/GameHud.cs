@@ -79,7 +79,7 @@ namespace GoodNightMyAngel.UI
             GUI.skin.label.fontSize = baseFontSize;
 
             // --- Oyuncu can çubuğu ---
-            var ph = FindObjectOfType<Player.PlayerHealth>();
+            var ph = FindFirstObjectByType<Player.PlayerHealth>();
             if (ph != null && !ph.IsDead)
             {
                 DrawBar(playerBarPos, playerBarSize, ph.CurrentHealth / ph.maxHealth,
@@ -129,7 +129,7 @@ namespace GoodNightMyAngel.UI
             DrawTopInfo(topText);
 
             // --- Sağ-alt: Para ---
-            var bm = FindObjectOfType<Build.BuildManager>();
+            var bm = FindFirstObjectByType<Build.BuildManager>();
             if (bm != null)
             {
                 var rect = new Rect(Screen.width - 180, Screen.height - 50, 160, 30);
@@ -141,7 +141,7 @@ namespace GoodNightMyAngel.UI
             }
 
             // --- Sol-alt: Call Mom göstergesi ---
-            var callMom = FindObjectOfType<Skills.CallMomSkill>();
+            var callMom = FindFirstObjectByType<Skills.CallMomSkill>();
             if (callMom != null)
             {
                 bool canUse = callMom.CanUse();

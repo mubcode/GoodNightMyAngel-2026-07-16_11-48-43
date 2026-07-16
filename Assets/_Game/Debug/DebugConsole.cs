@@ -137,7 +137,7 @@ namespace GoodNightMyAngel.DebugTools
                     if (parts.Length > 1 && int.TryParse(parts[1], out int m))
                     {
                         // BuildManager'a ulaşmaya çalış
-                        var bm = FindObjectOfType<Build.BuildManager>();
+                        var bm = FindFirstObjectByType<Build.BuildManager>();
                         if (bm != null)
                         {
                             // Currency'yi artırmak için reflection yok; basit yol:
@@ -150,15 +150,15 @@ namespace GoodNightMyAngel.DebugTools
                     }
                     break;
                 case "killall":
-                    var enemies = FindObjectsOfType<Enemies.EnemyBase>();
+                    var enemies = FindObjectsByType<Enemies.EnemyBase>(FindObjectsSortMode.None);
                     int n = 0;
                     foreach (var e in enemies) { if (e != null && !e.IsDead) { e.TakeDamage(99999f); n++; } }
                     _history.Add($"{n} düşman öldürüldü.");
                     break;
                 case "heal":
-                    var phs = FindObjectsOfType<Player.PlayerHealth>();
+                    var phs = FindObjectsByType<Player.PlayerHealth>(FindObjectsSortMode.None);
                     foreach (var p in phs) p.Heal(9999f);
-                    var beds = FindObjectsOfType<World.Bed>();
+                    var beds = FindObjectsByType<World.Bed>(FindObjectsSortMode.None);
                     foreach (var b in beds) b.Heal(9999f);
                     _history.Add("Tüm canlar dolduruldu.");
                     break;

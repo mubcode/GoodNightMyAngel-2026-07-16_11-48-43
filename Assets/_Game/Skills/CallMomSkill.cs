@@ -241,7 +241,7 @@ namespace GoodNightMyAngel.Skills
         {
             int count = 0;
             // Tüm EnemyBase'leri bul. Tag'lı objeleri de dahil eder.
-            var enemies = FindObjectsOfType<EnemyBase>();
+            var enemies = FindObjectsByType<EnemyBase>(FindObjectsSortMode.None);
             foreach (var e in enemies)
             {
                 if (e == null || e.IsDead) continue;
