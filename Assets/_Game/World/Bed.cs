@@ -96,6 +96,15 @@ namespace GoodNightMyAngel.World
         {
             if (DebugOverlay.Instance != null)
                 DebugOverlay.Instance.SetHudValue("Yatak Canı", $"{_currentHealth:F0}/{maxHealth:F0}");
+
+            // Yatak can barı
+            var hb = gameObject.AddComponent<HealthBar>();
+            hb.BindFromBed(this);
+            hb.width = 2.5f;
+            hb.height = 0.22f;
+            hb.heightOffset = 1.8f;
+            hb.foregroundColor = new Color(1f, 0.5f, 0.3f);
+            hb.showOnlyWhenDamaged = true;
         }
 
         private void Update()

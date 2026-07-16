@@ -2,20 +2,22 @@
 // BuildManager.cs
 // -----------------------------------------------------------------------------
 // Gece build phase boyunca oyuncunun savunma elemanlarını yerleştirmesini
-// yöneten ana sistem. Inspector'dan:
+// yöneten ana sistem.
+//
+// Yeni özellikler:
+//   - Ghost (yarı saydam önizleme) hover sırasında gösterilir
+//   - Yeşil/kırmızı zemin karesi ile hücre durumu görsel olarak anlaşılır
+//   - Yol çizgisi artık gerçek düşman yolu (spawn -> bed) üzerinden çizilir
+//   - Düşman yolu göstergesinin rengi/yüksekliği Inspector'dan ayarlanabilir
+//
+// Inspector'dan:
 //   - Grid boyutu (hücre birim uzunluğu)
 //   - Grid merkezi (yatak pozisyonu etrafında)
 //   - Mevcut eşya kataloğu (BuildItemData listesi)
 //   - Başlangıç parası
 //   - Yol göstergesi (LineRenderer) için renk ve kalınlık
+//   - Ghost (preview) ve zemin işareti renkleri
 // ayarlanabilir.
-//
-// Akış:
-//   1) Build phase başlar, oyuncu "1, 2, 3" ile kategori seçer.
-//   2) Mouse ile grid üzerinde gezinir; uygun hücre yeşil/kırmızı boyanır.
-//   3) Sol tık -> yerleştir (maliyet düşer).
-//   4) Sağ tık -> var olan bir elemanı seç, tamir et veya kaldır.
-//   5) Yaratık yolu (gece başında) tırtıklı çizgi ile gösterilir.
 // =============================================================================
 
 using System.Collections.Generic;
@@ -36,16 +38,13 @@ namespace GoodNightMyAngel.Build
         // -------------------------------------------------------------------------
         [Header("Grid")]
         [Tooltip("Bir hücrenin dünya uzayındaki birim uzunluğu.")]
-        [Min(0.5f)] public float cellSize = 1f;
+        [Min(0.5f)] public float cellSize = 1.2f;
 
         [Tooltip("Grid merkezi. Boşsa yatak pozisyonu kullanılır.")]
         public Transform gridCenter;
 
         [Tooltip("Grid yarıçapı (hücre cinsinden, merkezden uzaklık).")]
         [Min(1)] public int gridRadiusCells = 12;
-
-        [Tooltip("Yerleştirilebilir katman (LayerMask).")]
-        public LayerMask placementMask = ~0;
 
         [Header("Katalog")]
         [Tooltip("Yerleştirilebilecek savunma elemanları. Sıra = hızlı seçim tuşu (1, 2, 3 ...).")]
@@ -55,18 +54,28 @@ namespace GoodNightMyAngel.Build
         [Tooltip("Oyuncunun başlangıç parası.")]
         [Min(0)] public int startingCurrency = 100;
 
-        [Header("Yol Göstergesi")]
+        [Header("Yol Göstergesi (Düşman yolu)")]
         [Tooltip("Yaratık yolunun gösterileceği LineRenderer. Boşsa runtime oluşturulur.")]
         public LineRenderer pathLine;
 
-        [Tooltip("Yol çizgisi rengi.")]
-        public Color pathColor = new Color(0.8f, 0.2f, 0.2f, 0.9f);
+        [Tooltip("Yol çizgisi rengi (kırmızımsı).")]
+        public Color pathColor = new Color(1f, 0.3f, 0.3f, 0.85f);
 
         [Tooltip("Yol çizgisi kalınlığı.")]
-        [Min(0.01f)] public float pathWidth = 0.08f;
+        [Min(0.01f)] public float pathWidth = 0.12f;
 
-        [Tooltip("Yol çizgisi tırtık sayısı (yumuşaklık).")]
-        [Range(2, 60)] public int pathSegments = 24;
+        [Tooltip("Yol çizgisi yüksekliği (zeminden kaç birim yukarı).")]
+        [Min(0f)] public float pathHeight = 0.08f;
+
+        [Header("Hover / Yerleştirme Önizleme")]
+        [Tooltip("Yeşil (yerleştirilebilir) zemin karesi rengi.")]
+        public Color canPlaceColor = new Color(0.3f, 1f, 0.3f, 0.45f);
+
+        [Tooltip("Kırmızı (yerleştirilemez) zemin karesi rengi.")]
+        public Color cannotPlaceColor = new Color(1f, 0.3f, 0.3f, 0.45f);
+
+        [Tooltip("Hover ghost (yarı saydam eşya) göstergesinin opaklığı.")]
+        [Range(0f, 1f)] public float ghostOpacity = 0.45f;
 
         [Header("Girdi")]
         [Tooltip("Sol tık yerleştirir.")]
@@ -80,13 +89,20 @@ namespace GoodNightMyAngel.Build
         // -------------------------------------------------------------------------
         public int Currency { get; private set; }
 
-        // Grid: tüm hücreler dict'te tutulur (Vector2Int -> BuildItem)
         private readonly Dictionary<Vector2Int, BuildItem> _items = new Dictionary<Vector2Int, BuildItem>();
 
         private int _selectedIndex = 0;
         private Camera _cam;
         private Vector2Int? _hoverCell;
         private BuildItem _selectedItem;
+
+        // Ghost için prefab instance (placeholder, runtime'da oluşturulur)
+        private GameObject _ghostObj;
+        private GameObject _hoverSquareObj;       // zemine çizilen kare
+        private Material _ghostMaterial;
+        private Material _hoverSquareMaterial;
+        private Renderer _ghostRenderer;
+        private Renderer _hoverSquareRenderer;
 
         public bool IsBuildPhase => GameManager.Instance != null &&
             GameManager.Instance.TimeOfDay == TimeOfDay.NightBuild;
@@ -98,6 +114,7 @@ namespace GoodNightMyAngel.Build
         {
             _cam = Camera.main;
             Currency = startingCurrency;
+            CreatePreviewObjects();
         }
 
         private void Start()
@@ -108,6 +125,12 @@ namespace GoodNightMyAngel.Build
             if (DebugOverlay.Instance != null)
                 DebugOverlay.Instance.Log(LogCategory.Build,
                     $"BuildManager hazır. Para: {Currency}, Katalog: {catalog.Count} eşya.", false);
+        }
+
+        private void OnDestroy()
+        {
+            if (_ghostObj != null) Destroy(_ghostObj);
+            if (_hoverSquareObj != null) Destroy(_hoverSquareObj);
         }
 
         private void OnEnable()
@@ -126,6 +149,9 @@ namespace GoodNightMyAngel.Build
                 GameManager.Instance.OnBuildPhaseStarted -= HandleBuildStarted;
                 GameManager.Instance.OnBuildPhaseEnded -= HandleBuildEnded;
             }
+            // Build phase bittiğinde preview gizle
+            if (_ghostObj != null) _ghostObj.SetActive(false);
+            if (_hoverSquareObj != null) _hoverSquareObj.SetActive(false);
         }
 
         private void HandleBuildStarted(float t)
@@ -140,11 +166,18 @@ namespace GoodNightMyAngel.Build
         {
             if (DebugOverlay.Instance != null)
                 DebugOverlay.Instance.Log(LogCategory.Build, "Build phase bitti.", false);
+            if (_ghostObj != null) _ghostObj.SetActive(false);
+            if (_hoverSquareObj != null) _hoverSquareObj.SetActive(false);
         }
 
         private void Update()
         {
-            if (!IsBuildPhase) return;
+            if (!IsBuildPhase)
+            {
+                if (_ghostObj != null && _ghostObj.activeSelf) _ghostObj.SetActive(false);
+                if (_hoverSquareObj != null && _hoverSquareObj.activeSelf) _hoverSquareObj.SetActive(false);
+                return;
+            }
 
             // Kısayol tuşları: 1..9 ile katalog seç
             for (int i = 0; i < 9; i++)
@@ -158,8 +191,8 @@ namespace GoodNightMyAngel.Build
                 }
             }
 
-            // Mouse hover -> grid hücresi hesapla
             UpdateHoverCell();
+            UpdateHoverPreview();
 
             // Sol tık -> yerleştir
             if (_hoverCell.HasValue && LegacyInputBridge.GetKeyDown(placeKey))
@@ -210,7 +243,6 @@ namespace GoodNightMyAngel.Build
             if (_cam == null) { _hoverCell = null; return; }
 
             Ray ray = _cam.ScreenPointToRay(LegacyInputBridge.mousePosition);
-            // Yatay düzlem (XZ) ile kesişim noktasını bul. Y=0 düzlem.
             Plane ground = new Plane(Vector3.up, GridOrigin);
             if (ground.Raycast(ray, out float enter))
             {
@@ -221,6 +253,99 @@ namespace GoodNightMyAngel.Build
             {
                 _hoverCell = null;
             }
+        }
+
+        // -------------------------------------------------------------------------
+        // ÖNİZLEME OBJELERİ
+        // -------------------------------------------------------------------------
+        private void CreatePreviewObjects()
+        {
+            // Ghost (eşya önizleme) — yarı saydam küp
+            _ghostObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            _ghostObj.name = "BuildGhost";
+            // Collider lazım değil
+            var col = _ghostObj.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+            _ghostObj.SetActive(false);
+            _ghostRenderer = _ghostObj.GetComponent<Renderer>();
+            _ghostMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            _ghostMaterial.SetFloat("_Surface", 1);   // Transparent
+            _ghostMaterial.SetFloat("_Blend", 0);
+            _ghostMaterial.SetOverrideTag("RenderType", "Transparent");
+            _ghostMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            _ghostMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            _ghostMaterial.SetInt("_ZWrite", 0);
+            _ghostMaterial.renderQueue = 3000;
+            _ghostRenderer.sharedMaterial = _ghostMaterial;
+
+            // Zemin karesi (hover)
+            _hoverSquareObj = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            _hoverSquareObj.name = "HoverSquare";
+            var col2 = _hoverSquareObj.GetComponent<Collider>();
+            if (col2 != null) Destroy(col2);
+            _hoverSquareObj.transform.rotation = Quaternion.Euler(90, 0, 0);
+            _hoverSquareObj.SetActive(false);
+            _hoverSquareRenderer = _hoverSquareObj.GetComponent<Renderer>();
+            _hoverSquareMaterial = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            _hoverSquareMaterial.SetFloat("_Surface", 1);
+            _hoverSquareMaterial.SetFloat("_Blend", 0);
+            _hoverSquareMaterial.SetOverrideTag("RenderType", "Transparent");
+            _hoverSquareMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            _hoverSquareMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            _hoverSquareMaterial.SetInt("_ZWrite", 0);
+            _hoverSquareMaterial.renderQueue = 3000;
+            _hoverSquareRenderer.sharedMaterial = _hoverSquareMaterial;
+        }
+
+        private void UpdateHoverPreview()
+        {
+            if (!_hoverCell.HasValue)
+            {
+                if (_ghostObj.activeSelf) _ghostObj.SetActive(false);
+                if (_hoverSquareObj.activeSelf) _hoverSquareObj.SetActive(false);
+                return;
+            }
+
+            Vector2Int cell = _hoverCell.Value;
+            bool inBounds = IsCellInBounds(cell);
+            bool free = !_items.ContainsKey(cell);
+            bool canAfford = catalog.Count > 0 && _selectedIndex < catalog.Count &&
+                             Currency >= catalog[_selectedIndex].cost;
+            bool canPlace = inBounds && free && canAfford;
+
+            // Zemin karesini güncelle
+            Vector3 cellPos = CellToWorld(cell);
+            _hoverSquareObj.transform.position = cellPos + Vector3.up * 0.02f;
+            _hoverSquareObj.transform.localScale = new Vector3(cellSize * 0.95f, cellSize * 0.95f, 1f);
+            _hoverSquareMaterial.color = canPlace ? canPlaceColor : cannotPlaceColor;
+            if (!_hoverSquareObj.activeSelf) _hoverSquareObj.SetActive(true);
+
+            // Ghost
+            if (catalog.Count == 0 || _selectedIndex >= catalog.Count ||
+                catalog[_selectedIndex] == null || catalog[_selectedIndex].prefab == null)
+            {
+                if (_ghostObj.activeSelf) _ghostObj.SetActive(false);
+                return;
+            }
+            var data = catalog[_selectedIndex];
+
+            // Ghost rengini kategoriye göre değiştirelim:
+            // Barricade -> turuncu, Trap -> kırmızı, Turret -> mavi, Slow -> cyan, Special -> mor
+            Color ghostCol = data.category switch
+            {
+                BuildItemCategory.Barricade => new Color(1f, 0.6f, 0.2f, ghostOpacity),
+                BuildItemCategory.Trap => new Color(1f, 0.3f, 0.3f, ghostOpacity),
+                BuildItemCategory.Turret => new Color(0.3f, 0.7f, 1f, ghostOpacity),
+                BuildItemCategory.Slow => new Color(0.3f, 1f, 1f, ghostOpacity),
+                BuildItemCategory.Special => new Color(0.8f, 0.4f, 1f, ghostOpacity),
+                _ => new Color(1f, 1f, 1f, ghostOpacity)
+            };
+            if (!canPlace) ghostCol = new Color(0.5f, 0.2f, 0.2f, ghostOpacity);
+
+            _ghostObj.transform.position = cellPos + Vector3.up * 0.5f;
+            _ghostObj.transform.localScale = new Vector3(cellSize * 0.85f, 1f, cellSize * 0.85f);
+            _ghostMaterial.color = ghostCol;
+            if (!_ghostObj.activeSelf) _ghostObj.SetActive(true);
         }
 
         // -------------------------------------------------------------------------
@@ -250,7 +375,6 @@ namespace GoodNightMyAngel.Build
                 go = Instantiate(prefab, pos, Quaternion.identity);
             else
             {
-                // Geçici görsel: küp
                 go = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 go.transform.position = pos + Vector3.up * 0.5f;
                 go.transform.localScale = new Vector3(cellSize * 0.9f, 1f, cellSize * 0.9f);
@@ -329,44 +453,54 @@ namespace GoodNightMyAngel.Build
         // -------------------------------------------------------------------------
         // YOL GÖSTERGESİ
         // -------------------------------------------------------------------------
+        // Spawn noktalarından yatağa doğru **her spawn noktası için ayrı bir çizgi**
+        // çizer. Çizgi yüksekliği pathHeight kadardır ve yere yatmaz; böylece
+        // düşman yolu net olarak görünür. Çizgi ayrıca yataktan spawn noktasına
+        // doğru ok ucu gibi görünecek şekilde (renk geçişiyle) çizilir.
+        // -------------------------------------------------------------------------
         private void DrawEnemyPath()
         {
-            // Spawn noktalarından yatağa doğru örnek bir yol çiz. Bu sadece
-            // görsel rehber; düşmanlar NavMesh/transform ile gider.
             if (GameManager.Instance == null) return;
             var gmsp = GameManager.Instance.enemySpawnPoints;
-            if (gmsp == null || gmsp.Length == 0) return;
-
-            // LineRenderer yoksa oluştur
-            if (pathLine == null)
-            {
-                var go = new GameObject("EnemyPathLine");
-                go.transform.SetParent(transform);
-                pathLine = go.AddComponent<LineRenderer>();
-                pathLine.material = new Material(Shader.Find("Sprites/Default"));
-            }
-            pathLine.startColor = pathColor;
-            pathLine.endColor = pathColor;
-            pathLine.startWidth = pathWidth;
-            pathLine.endWidth = pathWidth;
-            pathLine.positionCount = pathSegments + 1;
-
             Vector3 bedPos = GameManager.Instance.bed != null
                 ? GameManager.Instance.bed.transform.position
                 : GridOrigin;
+            if (gmsp == null || gmsp.Length == 0) return;
 
-            for (int i = 0; i <= pathSegments; i++)
+            // Mevcut line'ları temizle
+            if (pathLine != null) Destroy(pathLine.gameObject);
+
+            // Her spawn noktası için bir LineRenderer oluştur
+            for (int s = 0; s < gmsp.Length; s++)
             {
-                float t = i / (float)pathSegments;
-                Transform sp = gmsp[Mathf.Min(gmsp.Length - 1, Mathf.FloorToInt(t * gmsp.Length))];
-                Vector3 a = sp != null ? sp.position : bedPos;
+                var sp = gmsp[s];
+                if (sp == null) continue;
+
+                var go = new GameObject($"EnemyPath_{s}");
+                go.transform.SetParent(transform);
+                var lr = go.AddComponent<LineRenderer>();
+                lr.material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                lr.material.color = pathColor;
+                lr.startColor = pathColor;
+                lr.endColor = pathColor;
+                lr.startWidth = pathWidth;
+                lr.endWidth = pathWidth * 1.5f;     // Bed'e doğru kalınlaşsın (vurgu)
+                lr.positionCount = 2;
+                lr.useWorldSpace = true;
+
+                Vector3 a = sp.position;
                 Vector3 b = bedPos;
-                // Tırtıklı (zigzag) interpolasyon: anahtar noktalara küçük ofsetler
-                Vector3 mid = Vector3.Lerp(a, b, t);
-                float wave = Mathf.Sin(t * Mathf.PI * 6f) * 0.4f;
-                Vector3 perp = Vector3.Cross((b - a).normalized, Vector3.up) * wave;
-                pathLine.SetPosition(i, mid + perp + Vector3.up * 0.05f);
+                // Zeminin hemen üstünde
+                a.y = pathHeight;
+                b.y = pathHeight;
+                lr.SetPosition(0, a);
+                lr.SetPosition(1, b);
+                lr.numCapVertices = 4;             // Uçlarda yumuşak
             }
+
+            // Sahnede sadece ilk line'ı referans al (Inspector için)
+            var first = transform.Find("EnemyPath_0");
+            if (first != null) pathLine = first.GetComponent<LineRenderer>();
         }
 
         // -------------------------------------------------------------------------
@@ -392,7 +526,6 @@ namespace GoodNightMyAngel.Build
         // -------------------------------------------------------------------------
         private void OnDrawGizmos()
         {
-            // Grid'i sahnede göster
             Vector3 origin = gridCenter != null ? gridCenter.position : Vector3.zero;
             Gizmos.color = new Color(1, 1, 1, 0.15f);
             int r = gridRadiusCells;
@@ -407,16 +540,6 @@ namespace GoodNightMyAngel.Build
                 Vector3 a = origin + new Vector3(-r * cellSize, 0, z * cellSize);
                 Vector3 b = origin + new Vector3(r * cellSize, 0, z * cellSize);
                 Gizmos.DrawLine(a, b);
-            }
-
-            // Hover hücresini vurgula
-            if (_hoverCell.HasValue)
-            {
-                bool canPlace = IsBuildPhase && IsCellInBounds(_hoverCell.Value) &&
-                                !_items.ContainsKey(_hoverCell.Value);
-                Gizmos.color = canPlace ? Color.green : Color.red;
-                Vector3 p = CellToWorld(_hoverCell.Value);
-                Gizmos.DrawWireCube(p + Vector3.up * 0.05f, new Vector3(cellSize, 0.1f, cellSize));
             }
         }
     }

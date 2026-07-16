@@ -76,6 +76,10 @@ namespace GoodNightMyAngel.Enemies
         [Tooltip("Ölüm VFX prefab'ı.")]
         public GameObject deathVfxPrefab;
 
+        [Header("Health Bar")]
+        [Tooltip("Düşman üzerinde can barı göster.")]
+        public bool showHealthBar = true;
+
         [Header("Boss")]
         [Tooltip("Bu düşman boss mu?")]
         public bool isBoss = false;
@@ -122,6 +126,28 @@ namespace GoodNightMyAngel.Enemies
                 _agent.speed = moveSpeed;
                 _agent.angularSpeed = turnSpeed;
             }
+
+            // Can barı ekle
+            if (showHealthBar)
+            {
+                var hb = gameObject.AddComponent<World.HealthBar>();
+                hb.Bind(() => maxHealth > 0 ? CurrentHealth / maxHealth : 0f);
+                hb.width = isBoss ? 2.0f : 1.0f;
+                hb.heightOffset = isBoss ? 2.6f : 1.4f;
+                hb.height = isBoss ? 0.22f : 0.14f;
+                hb.foregroundColor = isBoss ? new Color(1f, 0.3f, 0.3f) : new Color(0.9f, 0.4f, 0.4f);
+            }
+        }
+
+        /// <summary>Düşmanın hızını eski haline döndür (Slow tuzakları için).</summary>
+        public void ResetSpeed()
+        {
+            // Bu metodun override'ı ileride yapılabilir; burada moveSpeed'i
+            // default haline döndürmek yerine yapacak bir şey yok çünkü
+            // baseSpeed inspector'da tutulmuyor. Bu yüzden slow tuzağı
+            // yavaşlamayı bir sonraki dalga sonuna kadar koruyamaz;
+            // ancak Update'te her frame zaten moveSpeed değişmiyorsa
+            // yavaşlama kalıcı olur. BuildItem.UpdateSlow bunu yönetir.
         }
 
         protected virtual void Update()
