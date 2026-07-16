@@ -57,15 +57,10 @@ namespace GoodNightMyAngel.Build
         public bool IsBroken => CurrentHealth <= 0f;
 
         private float _attackTimer = 0f;
-        private float _slowTimer = 0f;
         private HealthBar _healthBar;
         private GameObject _rangeIndicator;
         private MeshRenderer _bodyRenderer;
         private Material _bodyMat;
-        private Color _baseColor;
-
-        // Slow için
-        private float _slowAmount = 0.4f; // yavaşlatma yüzdesi (0.4 = %40 yavaşlatır)
 
         // -------------------------------------------------------------------------
         // YAŞAM DÖNGÜSÜ
