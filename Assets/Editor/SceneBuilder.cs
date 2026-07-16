@@ -4,13 +4,17 @@
 // GoodNight My Angel sahnesini hızlıca kurmak için editor menüsü.
 //
 // Unity menüsü:
-//   GoodNight > Build Demo Scene
+//   GoodNight > 1) Add Required Tags   (mutlaka önce bunu çalıştır)
+//   GoodNight > 2) Build Demo Scene
 //
-// Tek tıkla: kamera, ışık, yer, yatak, oyuncu, spawn noktaları, basit
-// ev outline'ı oluşturulur. Sonra elle mesh/model ekleyebilirsin.
+// Build Demo Scene tüm sahneyi kurmadan önce:
+//   1) Tag'lerin tanımlı olup olmadığını kontrol eder; değilse uyarı verir.
+//   2) Assets/_Game/Prefabs/ klasörünü oluşturur.
+//   3) Sahneyi kurar.
 // =============================================================================
 
 #if UNITY_EDITOR
+using System.IO;
 using UnityEngine;
 using UnityEditor;
 using UnityEngine.AI;
@@ -29,10 +33,74 @@ namespace GoodNightMyAngel.EditorTools
 {
     public static class SceneBuilder
     {
-        [MenuItem("GoodNight/Build Demo Scene")]
+        // Sahne kurulumu için gereken tag'ler
+        private static readonly string[] REQUIRED_TAGS = new string[]
+        {
+            "Player", "Enemy", "EnemySpawn"
+        };
+
+        // --------------------------------------------------------------------
+        // MENU: Add Required Tags
+        // --------------------------------------------------------------------
+        [MenuItem("GoodNight/1) Add Required Tags")]
+        public static void AddRequiredTags()
+        {
+            Debug.Log("[SceneBuilder] Tag'ler ekleniyor...");
+
+            var tagManager = new SerializedObject(
+                AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset")[0]);
+            var tagsProp = tagManager.FindProperty("tags");
+
+            // Zaten var olan tag'leri topla
+            var existing = new System.Collections.Generic.HashSet<string>();
+            for (int i = 0; i < tagsProp.arraySize; i++)
+            {
+                var v = tagsProp.GetArrayElementAtIndex(i).stringValue;
+                if (!string.IsNullOrEmpty(v)) existing.Add(v);
+            }
+
+            int added = 0;
+            foreach (var t in REQUIRED_TAGS)
+            {
+                if (existing.Contains(t)) continue;
+                tagsProp.InsertArrayElementAtIndex(tagsProp.arraySize);
+                tagsProp.GetArrayElementAtIndex(tagsProp.arraySize - 1).stringValue = t;
+                added++;
+                Debug.Log($"[SceneBuilder] Tag eklendi: {t}");
+            }
+
+            tagManager.ApplyModifiedProperties();
+            AssetDatabase.SaveAssets();
+
+            Debug.Log($"[SceneBuilder] Tag işlemi tamamlandı. Eklenen: {added}, " +
+                      $"toplam: {tagsProp.arraySize}");
+        }
+
+        // --------------------------------------------------------------------
+        // MENU: Build Demo Scene
+        // --------------------------------------------------------------------
+        [MenuItem("GoodNight/2) Build Demo Scene")]
         public static void BuildDemoScene()
         {
+            // Tag'ler hazır mı kontrol et
+            if (!AreAllTagsPresent())
+            {
+                bool ok = EditorUtility.DisplayDialog(
+                    "Tag'ler Eksik",
+                    "Sahne kurulumu için 'Player', 'Enemy', 'EnemySpawn' tag'leri gerekli.\n\n" +
+                    "Şimdi 'GoodNight > 1) Add Required Tags' çalıştırılsın mı?",
+                    "Evet, ekle", "İptal");
+                if (!ok) return;
+                AddRequiredTags();
+                // Asset veritabanını tazele
+                AssetDatabase.Refresh();
+            }
+
             Debug.Log("[SceneBuilder] Demo sahne kurulumu başlıyor...");
+
+            // Prefabs klasörünü garanti et
+            EnsureFolder("Assets/_Game/Prefabs");
+            EnsureFolder("Assets/_Game/Data");
 
             // -----------------------------------------------------------------
             // 1) Bootstrap (her şeyi oluşturur)
@@ -70,6 +138,7 @@ namespace GoodNightMyAngel.EditorTools
             // 4) Oyuncu (CharacterController'lı küp)
             // -----------------------------------------------------------------
             var player = new GameObject("Player");
+            player.tag = "Player";  // tag'i en başta set et
             player.transform.position = new Vector3(2, 0.9f, 0);
             var cc = player.AddComponent<CharacterController>();
             cc.height = 1.8f;
@@ -88,7 +157,6 @@ namespace GoodNightMyAngel.EditorTools
 
             player.AddComponent<PlayerHealth>();
             var pc = player.AddComponent<PlayerController>();
-            player.tag = "Player";
 
             // -----------------------------------------------------------------
             // 5) Kamera (top-down)
@@ -126,19 +194,20 @@ namespace GoodNightMyAngel.EditorTools
                 new Vector3(-18, 0, 12),
                 new Vector3( 18, 0, 12),
             };
+            var spawnList = new System.Collections.Generic.List<Transform>();
             foreach (var p in spawnPositions)
             {
                 var sp = new GameObject("Spawn_" + p);
                 sp.transform.SetParent(spawnRoot.transform);
                 sp.transform.position = p;
-                sp.tag = "EnemySpawn";
+                sp.tag = "EnemySpawn";  // tag artık tanımlı olmalı
+                spawnList.Add(sp.transform);
             }
 
             // -----------------------------------------------------------------
             // 8) NavMesh (opsiyonel)
             // -----------------------------------------------------------------
-            var groundForNav = ground;
-            var nav = groundForNav.AddComponent<NavMeshSurface>();
+            var nav = ground.AddComponent<NavMeshSurface>();
             nav.collectObjects = CollectObjects.All;
             nav.BuildNavMesh();
 
@@ -148,38 +217,16 @@ namespace GoodNightMyAngel.EditorTools
             var bmGo = new GameObject("BuildManager");
             var bm = bmGo.AddComponent<BuildManager>();
             bm.gridCenter = bed.transform;
-            // Not: BuildManager doğrudan spawn noktalarını yönetmez,
-            // sadece yatak etrafında grid çizer. Yaratık yol çizgisi
-            // GameManager.enemySpawnPoints üzerinden çalışır (aşağıda atanacak).
 
             // Katalog için örnek BuildItemData
-            var barricade = ScriptableObject.CreateInstance<BuildItemData>();
-            barricade.displayName = "Barikat";
-            barricade.maxHealth = 80;
-            barricade.damage = 0;
-            barricade.cost = 15;
-            barricade.category = BuildItemCategory.Barricade;
-            AssetDatabase.CreateAsset(barricade, "Assets/_Game/Data/Barricade.asset");
+            var barricade = CreateOrLoadBuildItemData("Assets/_Game/Data/Barricade.asset",
+                "Barikat", 80, 0, 15, BuildItemCategory.Barricade, 0f, 1f);
 
-            var trap = ScriptableObject.CreateInstance<BuildItemData>();
-            trap.displayName = "Tuzak";
-            trap.maxHealth = 30;
-            trap.damage = 25;
-            trap.attackRange = 1.5f;
-            trap.attackInterval = 0.8f;
-            trap.cost = 30;
-            trap.category = BuildItemCategory.Trap;
-            AssetDatabase.CreateAsset(trap, "Assets/_Game/Data/Trap.asset");
+            var trap = CreateOrLoadBuildItemData("Assets/_Game/Data/Trap.asset",
+                "Tuzak", 30, 25, 30, BuildItemCategory.Trap, 1.5f, 0.8f);
 
-            var turret = ScriptableObject.CreateInstance<BuildItemData>();
-            turret.displayName = "Kule";
-            turret.maxHealth = 60;
-            turret.damage = 8;
-            turret.attackRange = 6f;
-            turret.attackInterval = 0.6f;
-            turret.cost = 50;
-            turret.category = BuildItemCategory.Turret;
-            AssetDatabase.CreateAsset(turret, "Assets/_Game/Data/Turret.asset");
+            var turret = CreateOrLoadBuildItemData("Assets/_Game/Data/Turret.asset",
+                "Kule", 60, 8, 50, BuildItemCategory.Turret, 6f, 0.6f);
 
             bm.catalog.Add(barricade);
             bm.catalog.Add(trap);
@@ -193,63 +240,30 @@ namespace GoodNightMyAngel.EditorTools
             es.spawnPointTag = "EnemySpawn";
 
             // Basit düşman prefab'ı
-            var enemyPrefab = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            enemyPrefab.name = "EnemyPrefab";
-            enemyPrefab.transform.localScale = new Vector3(0.6f, 0.8f, 0.6f);
-            var eMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-            eMat.color = new Color(0.4f, 0.1f, 0.1f);
-            enemyPrefab.GetComponent<Renderer>().sharedMaterial = eMat;
-            // CharacterController yerine NavMeshAgent
-            var nma = enemyPrefab.AddComponent<NavMeshAgent>();
-            nma.radius = 0.3f; nma.height = 1.6f;
-            var enemyComp = enemyPrefab.AddComponent<EnemyBase>();
-            enemyComp.moveSpeed = 2.5f;
-            enemyComp.maxHealth = 25;
-            enemyComp.damage = 5;
-            enemyComp.attackCooldown = 1f;
-            enemyPrefab.tag = "Enemy";
+            string enemyPath = "Assets/_Game/Prefabs/Enemy.prefab";
+            GameObject enemyPrefab = CreateOrLoadEnemyPrefab(enemyPath, "EnemyPrefab",
+                new Vector3(0.6f, 0.8f, 0.6f), new Color(0.4f, 0.1f, 0.1f),
+                0.3f, 1.6f, 2.5f, 25, 5, 1f, false);
+            es.normalEnemyPrefab = enemyPrefab;
 
-            // Prefab olarak kaydet
-            string prefabPath = "Assets/_Game/Prefabs/Enemy.prefab";
-            PrefabUtility.SaveAsPrefabAsset(enemyPrefab, prefabPath);
-            es.normalEnemyPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
-
-            // Boss prefabı (daha büyük)
-            var boss = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            boss.name = "BossPrefab";
-            boss.transform.localScale = new Vector3(1.5f, 1.8f, 1.5f);
-            var bMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-            bMat.color = new Color(0.7f, 0.1f, 0.3f);
-            boss.GetComponent<Renderer>().sharedMaterial = bMat;
-            var bnma = boss.AddComponent<NavMeshAgent>();
-            bnma.radius = 0.6f; bnma.height = 2.5f;
-            var bossComp = boss.AddComponent<EnemyBase>();
-            bossComp.moveSpeed = 1.8f;
-            bossComp.maxHealth = 250;
-            bossComp.damage = 12;
-            bossComp.attackCooldown = 1.5f;
-            bossComp.isBoss = true;
-            boss.tag = "Enemy";
-
+            // Boss prefabı
             string bossPath = "Assets/_Game/Prefabs/Boss.prefab";
-            PrefabUtility.SaveAsPrefabAsset(boss, bossPath);
-            es.bossPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(bossPath);
+            GameObject bossPrefab = CreateOrLoadEnemyPrefab(bossPath, "BossPrefab",
+                new Vector3(1.5f, 1.8f, 1.5f), new Color(0.7f, 0.1f, 0.3f),
+                0.6f, 2.5f, 1.8f, 250, 12, 1.5f, true);
+            es.bossPrefab = bossPrefab;
 
             // GameManager'a spawner ve boss ata
             var gm = Object.FindFirstObjectByType<GameManager>();
             if (gm == null)
             {
-                // bootstrap henüz Start çalışmamış olabilir, oluştur
                 var go = new GameObject("GameManager");
                 gm = go.AddComponent<GameManager>();
             }
             gm.bed = bedComp;
-            gm.bossPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(bossPath);
-            // spawn noktalarını ata
-            var sps = new System.Collections.Generic.List<Transform>();
-            foreach (Transform child in spawnRoot.transform) sps.Add(child);
-            gm.enemySpawnPoints = sps.ToArray();
-            gm.bossSpawnPoints = sps.ToArray();
+            gm.bossPrefab = bossPrefab;
+            gm.enemySpawnPoints = spawnList.ToArray();
+            gm.bossSpawnPoints = spawnList.ToArray();
 
             // -----------------------------------------------------------------
             // 11) CallMom skill (player üzerine)
@@ -285,9 +299,105 @@ namespace GoodNightMyAngel.EditorTools
                       "Play'e bas ve test et. ` tuşu ile debug konsolunu aç.");
         }
 
+        // --------------------------------------------------------------------
+        // YARDIMCI METODLAR
+        // --------------------------------------------------------------------
+
+        private static bool AreAllTagsPresent()
+        {
+            var tagManager = new SerializedObject(
+                AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset")[0]);
+            var tagsProp = tagManager.FindProperty("tags");
+            var existing = new System.Collections.Generic.HashSet<string>();
+            for (int i = 0; i < tagsProp.arraySize; i++)
+            {
+                var v = tagsProp.GetArrayElementAtIndex(i).stringValue;
+                if (!string.IsNullOrEmpty(v)) existing.Add(v);
+            }
+            foreach (var t in REQUIRED_TAGS)
+                if (!existing.Contains(t)) return false;
+            return true;
+        }
+
+        private static void EnsureFolder(string path)
+        {
+            // "Assets/_Game/Prefabs" gibi yolu parçalara ayır
+            if (AssetDatabase.IsValidFolder(path)) return;
+            string[] parts = path.Split('/');
+            string cur = parts[0]; // "Assets"
+            for (int i = 1; i < parts.Length; i++)
+            {
+                string next = cur + "/" + parts[i];
+                if (!AssetDatabase.IsValidFolder(next))
+                    AssetDatabase.CreateFolder(cur, parts[i]);
+                cur = next;
+            }
+        }
+
+        private static BuildItemData CreateOrLoadBuildItemData(string path, string name,
+            float maxHp, float dmg, int cost, BuildItemCategory cat, float range, float interval)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<BuildItemData>(path);
+            if (existing != null) return existing;
+
+            var data = ScriptableObject.CreateInstance<BuildItemData>();
+            data.displayName = name;
+            data.maxHealth = maxHp;
+            data.damage = dmg;
+            data.cost = cost;
+            data.category = cat;
+            data.attackRange = range;
+            data.attackInterval = interval;
+            AssetDatabase.CreateAsset(data, path);
+            return data;
+        }
+
+        private static GameObject CreateOrLoadEnemyPrefab(string path, string name,
+            Vector3 scale, Color color, float agentRadius, float agentHeight,
+            float moveSpeed, float maxHp, float dmg, float atkCooldown, bool isBoss)
+        {
+            // Önceden var mı?
+            var existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (existing != null) return existing;
+
+            // Yoksa oluştur
+            var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            go.name = name;
+            go.transform.localScale = scale;
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            mat.color = color;
+            go.GetComponent<Renderer>().sharedMaterial = mat;
+            // Capsule'in collider'ı var; düşmanlar için CharacterController yerine
+            // NavMeshAgent kullanacağız, collider kalsın (fizik için).
+            var nma = go.AddComponent<NavMeshAgent>();
+            nma.radius = agentRadius;
+            nma.height = agentHeight;
+            var enemy = go.AddComponent<EnemyBase>();
+            enemy.moveSpeed = moveSpeed;
+            enemy.maxHealth = maxHp;
+            enemy.damage = dmg;
+            enemy.attackCooldown = atkCooldown;
+            enemy.isBoss = isBoss;
+            go.tag = "Enemy";
+
+            // Prefab olarak kaydet
+            var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
+            // Geçici sahne objesini yok et
+            Object.DestroyImmediate(go);
+            return prefab;
+        }
+
         private static void CreateBuildPrefab(BuildItemData data, PrimitiveType prim,
             Vector3 scale, Color color)
         {
+            string path = $"Assets/_Game/Prefabs/{data.displayName}.prefab";
+            var existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (existing != null)
+            {
+                data.prefab = existing;
+                return;
+            }
+
             var go = GameObject.CreatePrimitive(prim);
             go.name = data.displayName + "Prefab";
             go.transform.localScale = scale;
@@ -295,39 +405,9 @@ namespace GoodNightMyAngel.EditorTools
             mat.color = color;
             go.GetComponent<Renderer>().sharedMaterial = mat;
             go.AddComponent<BuildItem>();
-            string path = $"Assets/_Game/Prefabs/{data.displayName}.prefab";
-            PrefabUtility.SaveAsPrefabAsset(go, path);
-            data.prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
+            data.prefab = prefab;
             Object.DestroyImmediate(go);
-        }
-
-        [MenuItem("GoodNight/Add Layers and Tags")]
-        public static void AddLayersAndTags()
-        {
-            // Tag'lerin eklenmesi (Layer'lar serialization gerektirir, atlanıyor)
-            // Open TagManager
-            SerializedObject tagManager = new SerializedObject(
-                AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset")[0]);
-            SerializedProperty tagsProp = tagManager.FindProperty("tags");
-
-            bool Has(string s)
-            {
-                for (int i = 0; i < tagsProp.arraySize; i++)
-                    if (tagsProp.GetArrayElementAtIndex(i).stringValue == s) return true;
-                return false;
-            }
-            void Add(string s)
-            {
-                if (Has(s)) return;
-                tagsProp.InsertArrayElementAtIndex(0);
-                tagsProp.GetArrayElementAtIndex(0).stringValue = s;
-            }
-            Add("Player");
-            Add("Enemy");
-            Add("EnemySpawn");
-            tagManager.ApplyModifiedProperties();
-            AssetDatabase.SaveAssets();
-            Debug.Log("[SceneBuilder] Player / Enemy / EnemySpawn tag'leri eklendi.");
         }
     }
 }
