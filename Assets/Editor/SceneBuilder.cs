@@ -315,7 +315,13 @@ namespace GoodNightMyAngel.EditorTools
             mapGo.AddComponent<Minimap>();
 
             // -----------------------------------------------------------------
-            // 16) BuildItem prefab'ları oluştur (basit küpler)
+            // 16) ControlsPanel (sol tarafta kontroller + debug komutları)
+            // -----------------------------------------------------------------
+            var cpGo = new GameObject("ControlsPanel");
+            cpGo.AddComponent<ControlsPanel>();
+
+            // -----------------------------------------------------------------
+            // 17) BuildItem prefab'ları oluştur (basit küpler)
             // -----------------------------------------------------------------
             CreateBuildPrefab(barricade, PrimitiveType.Cube, new Vector3(0.8f, 0.6f, 0.8f),
                 new Color(0.5f, 0.35f, 0.2f));
