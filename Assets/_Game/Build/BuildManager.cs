@@ -96,7 +96,7 @@ namespace GoodNightMyAngel.Build
 
         private readonly Dictionary<Vector2Int, BuildItem> _items = new Dictionary<Vector2Int, BuildItem>();
 
-        private int _selectedIndex = 0;
+        private int _selectedIndex = -1;   // -1 = inşa modunda değil
         private Camera _cam;
         private Vector2Int? _hoverCell;
         private BuildItem _selectedItem;
@@ -203,18 +203,21 @@ namespace GoodNightMyAngel.Build
             UpdateHoverCell();
             UpdateHoverPreview();
 
-            if (_hoverCell.HasValue && LegacyInputBridge.GetKeyDown(placeKey))
+            // Sol tık -> sadece inşa modundayken (_selectedIndex >= 0) yerleştir
+            // Aksi halde sol tık oyuncu ateşi için serbest
+            if (_hoverCell.HasValue && _selectedIndex >= 0 && LegacyInputBridge.GetKeyDown(placeKey))
             {
                 TryPlaceAt(_hoverCell.Value);
-                // Her yerleştirmeden sonra son geçerli hücre tekrar hesapla
                 RecomputeLastValidCell();
             }
 
+            // Sağ tık -> etkileşim (eşya seç / inşa modundan çık)
             if (LegacyInputBridge.GetKeyDown(interactKey))
             {
                 TryInteractAt(_hoverCell);
             }
 
+            // R tuşu: seçili eşyayı tamir et
             if (LegacyInputBridge.GetKeyDown(KeyCode.R) && _selectedItem != null)
             {
                 TryRepair(_selectedItem);
@@ -388,7 +391,7 @@ namespace GoodNightMyAngel.Build
             if (!_hoverSquareObj.activeSelf) _hoverSquareObj.SetActive(true);
 
             // Ghost
-            if (!canPlace || catalog.Count == 0 || _selectedIndex >= catalog.Count ||
+            if (!canPlace || catalog.Count == 0 || _selectedIndex < 0 || _selectedIndex >= catalog.Count ||
                 catalog[_selectedIndex] == null)
             {
                 if (_ghostObj.activeSelf) _ghostObj.SetActive(false);
@@ -472,6 +475,7 @@ namespace GoodNightMyAngel.Build
             var cell = cellNullable.Value;
             if (_items.TryGetValue(cell, out var item))
             {
+                // Bir eşya seçildi
                 _selectedItem = item;
                 if (DebugOverlay.Instance != null)
                     DebugOverlay.Instance.Log(LogCategory.Build,
@@ -481,6 +485,23 @@ namespace GoodNightMyAngel.Build
             {
                 _selectedItem = null;
             }
+
+            // Sağ tık: inşa modundan çık (katalog seçimini temizle)
+            if (_selectedIndex >= 0)
+            {
+                _selectedIndex = -1;
+                if (DebugOverlay.Instance != null)
+                    DebugOverlay.Instance.Log(LogCategory.Build, "İnşa modundan çıkıldı.", false);
+            }
+
+            UpdateHud();
+        }
+
+        public void ExitBuildMode()
+        {
+            _selectedIndex = -1;
+            _selectedItem = null;
+            if (_ghostObj != null) _ghostObj.SetActive(false);
             UpdateHud();
         }
 

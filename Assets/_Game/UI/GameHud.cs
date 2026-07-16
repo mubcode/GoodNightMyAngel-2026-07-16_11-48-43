@@ -110,6 +110,8 @@ namespace GoodNightMyAngel.UI
             string topText = "";
             if (GameManager.Instance.Status == GameStatus.GameOver)
                 topText = "OYUN BİTTİ — ESC ile başa dön";
+            else if (GameManager.Instance.Status == GameStatus.Paused)
+                topText = "⏸ DURAKLATILDI — ESC ile devam";
             else if (GameManager.Instance.Status == GameStatus.NightCleared)
                 topText = "ŞAFAK SÖKÜYOR...";
             else

@@ -196,7 +196,7 @@ namespace GoodNightMyAngel.Core
 
         private void Update()
         {
-            // ESC veya P ile duraklatma
+            // ESC ile duraklatma
             if (LegacyInputBridge.GetKeyDown(KeyCode.Escape))
             {
                 TogglePause();
@@ -261,22 +261,35 @@ namespace GoodNightMyAngel.Core
         private IEnumerator NightLoop()
         {
             // 1) Build phase — geri sayım (PAUSE-aware)
-            while (BuildPhaseTimeRemaining > 0f && Status == GameStatus.Playing)
+            // PAUSE'da coroutine ölmesin diye paused loop en içte
+            while (Status == GameStatus.Playing || Status == GameStatus.Paused)
             {
-                // Pause sırasında burada bekle (zaman azalmasın)
+                // Pause sırasında burada bekle (zaman azalmasın, coroutine ölmesin)
                 while (Status == GameStatus.Paused) yield return null;
 
-                BuildPhaseTimeRemaining -= Time.deltaTime;
-                if (DebugOverlay.Instance != null)
-                    DebugOverlay.Instance.SetHudValue("Build Süresi", $"{Mathf.Max(0, BuildPhaseTimeRemaining):F1}s");
+                // Build phase devam ediyorsa geri say
+                if (BuildPhaseTimeRemaining > 0f && Status == GameStatus.Playing)
+                {
+                    BuildPhaseTimeRemaining -= Time.deltaTime;
+                    if (DebugOverlay.Instance != null)
+                        DebugOverlay.Instance.SetHudValue("Build Süresi", $"{Mathf.Max(0, BuildPhaseTimeRemaining):F1}s");
+                }
+                else if (BuildPhaseTimeRemaining <= 0f)
+                {
+                    break;  // build phase bitti
+                }
                 yield return null;
             }
 
-            if (Status != GameStatus.Playing)
+            // Pause veya GameOver nedeniyle coroutine bittiyse yeniden değerlendir
+            if (Status == GameStatus.GameOver || Status == GameStatus.NightCleared)
             {
-                LogDay("Build phase yarıda kesildi (oyun durumu değişti).");
                 yield break;
             }
+            // Status == Paused ise bu noktada hâlâ playing olmuş olmalı; 
+            // eğer hâlâ paused ise bekle
+            while (Status == GameStatus.Paused) yield return null;
+            if (Status != GameStatus.Playing) yield break;
 
             OnBuildPhaseEnded?.Invoke();
             LogDay("Build phase bitti. Savunma fazına geçiliyor.");
@@ -285,23 +298,46 @@ namespace GoodNightMyAngel.Core
             int totalWaves = wavesPerNight + (CurrentDay - 1) * wavesIncreasePerNight;
             for (int w = 1; w <= totalWaves; w++)
             {
+                // Pause sırasında döngü ilerlemesin
+                while (Status == GameStatus.Paused) yield return null;
                 if (Status != GameStatus.Playing) yield break;
                 yield return StartCoroutine(RunWave(w, totalWaves));
-                yield return new WaitForSeconds(timeBetweenWaves);
+                // Dalgalar arası bekleme (PAUSE-aware)
+                float waitT = 0f;
+                while (waitT < timeBetweenWaves)
+                {
+                    while (Status == GameStatus.Paused) yield return null;
+                    if (Status != GameStatus.Playing) yield break;
+                    waitT += Time.deltaTime;
+                    yield return null;
+                }
             }
 
             // 3) Boss
-            if (bossPrefab != null && Status == GameStatus.Playing)
+            if (bossPrefab != null && (Status == GameStatus.Playing || Status == GameStatus.Paused))
             {
                 TimeOfDay = TimeOfDay.NightBoss;
                 LogDay("Tüm dalgalar temizlendi. Boss yaklaşıyor!");
                 if (DebugOverlay.Instance != null)
                     DebugOverlay.Instance.SetHudValue("Zaman", "Gece — BOSS");
 
-                yield return new WaitForSeconds(timeBeforeBoss);
+                // Boss öncesi gecikme (PAUSE-aware)
+                float waitT = 0f;
+                while (waitT < timeBeforeBoss)
+                {
+                    while (Status == GameStatus.Paused) yield return null;
+                    if (Status != GameStatus.Playing) yield break;
+                    waitT += Time.deltaTime;
+                    yield return null;
+                }
                 SpawnBoss();
-                // Boss ölünceye kadar bekle. Bed veya boss ölümü tarafından yönetilir.
-                while (Status == GameStatus.Playing && !_bossDefeated) yield return null;
+                // Boss ölünceye kadar bekle (PAUSE-aware)
+                while ((Status == GameStatus.Playing && !_bossDefeated) || Status == GameStatus.Paused)
+                {
+                    while (Status == GameStatus.Paused) yield return null;
+                    if (Status != GameStatus.Playing) yield break;
+                    yield return null;
+                }
             }
 
             // 4) Sabah
@@ -333,10 +369,10 @@ namespace GoodNightMyAngel.Core
             Enemies.EnemySpawner.SpawnWave(enemyCount, hpMul);
 
             // Tüm düşmanlar ölünceye kadar bekle (PAUSE-aware)
-            while ((Enemies.EnemySpawner.AliveCount > 0 && Status == GameStatus.Playing) ||
-                   (Status == GameStatus.Paused))
+            while (Enemies.EnemySpawner.AliveCount > 0 || Status == GameStatus.Paused)
             {
                 while (Status == GameStatus.Paused) yield return null;
+                if (Status != GameStatus.Playing) yield break;
                 if (DebugOverlay.Instance != null)
                     DebugOverlay.Instance.SetHudValue("Kalan Düşman", Enemies.EnemySpawner.AliveCount.ToString());
                 yield return null;
@@ -422,6 +458,11 @@ namespace GoodNightMyAngel.Core
         // -------------------------------------------------------------------------
         // DURAKLATMA
         // -------------------------------------------------------------------------
+        // NOT: Time.timeScale = 0 kullanmıyoruz çünkü Unity coroutine'lerini de
+        // donduruyor. Bunun yerine Status bayrağı + coroutine'lerde "while (paused)
+        // yield" pattern'i kullanıyoruz. HUD/OnGUI her frame gerçek değerleri
+        // okuduğu için doğru gösterilir.
+        // -------------------------------------------------------------------------
 
         public void TogglePause()
         {
@@ -434,9 +475,10 @@ namespace GoodNightMyAngel.Core
         {
             if (Status == GameStatus.Paused) return;
             Status = GameStatus.Paused;
-            // Time.timeScale kullanmıyoruz çünkü coroutine'leri de durduruyor.
-            // Bunun yerine Status bayrağı + Update kontrolleriyle yönetiyoruz.
-            // Zamanlayıcılar (HUD, animasyon) Time.unscaledDeltaTime kullanır.
+            // HATA ÖNLEME: Time.timeScale = 0 KULLANMIYORUZ
+            // Çünkü Time.timeScale = 0, coroutine'lerin de yürütülmesini durduruyor
+            // ve coroutine paused loop'a giremeden "donmuş" kalıyordu.
+            // Status = Paused ile yönetim daha güvenilir.
             LogDay("Oyun duraklatıldı.");
             OnPauseChanged?.Invoke(true);
         }
@@ -445,6 +487,7 @@ namespace GoodNightMyAngel.Core
         {
             if (Status != GameStatus.Paused) return;
             Status = GameStatus.Playing;
+            // HATA ÖNLEME: Time.timeScale = 1 yapmıyoruz çünkü zaten 1 (hiç değişmedi)
             LogDay("Oyun devam ediyor.");
             OnPauseChanged?.Invoke(false);
         }
