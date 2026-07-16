@@ -103,6 +103,8 @@ namespace GoodNightMyAngel.Player
         private InputAction _moveAction;
         private InputAction _sprintAction;
         private InputAction _jumpAction;
+        private InputAction _attackAction;
+        private InputAction _interactAction;
 
         private Vector2 _moveInput;
         private bool _sprintHeld;
@@ -150,6 +152,8 @@ namespace GoodNightMyAngel.Player
                 _moveAction = map?.FindAction("Move");
                 _sprintAction = map?.FindAction("Sprint");
                 _jumpAction = map?.FindAction("Jump");
+                _attackAction = map?.FindAction("Attack");
+                _interactAction = map?.FindAction("Interact");
             }
         }
 
@@ -158,17 +162,25 @@ namespace GoodNightMyAngel.Player
             if (_moveAction != null) _moveAction.Enable();
             if (_sprintAction != null) _sprintAction.Enable();
             if (_jumpAction != null) _jumpAction.Enable();
+            if (_attackAction != null) _attackAction.Enable();
+            if (_interactAction != null) _interactAction.Enable();
 
             if (_jumpAction != null) _jumpAction.performed += OnJump;
+            if (_attackAction != null) _attackAction.performed += OnAttack;
+            if (_interactAction != null) _interactAction.performed += OnInteract;
         }
 
         private void OnDisable()
         {
             if (_jumpAction != null) _jumpAction.performed -= OnJump;
+            if (_attackAction != null) _attackAction.performed -= OnAttack;
+            if (_interactAction != null) _interactAction.performed -= OnInteract;
 
             if (_moveAction != null) _moveAction.Disable();
             if (_sprintAction != null) _sprintAction.Disable();
             if (_jumpAction != null) _jumpAction.Disable();
+            if (_attackAction != null) _attackAction.Disable();
+            if (_interactAction != null) _interactAction.Disable();
         }
 
         private void Start()
@@ -278,8 +290,9 @@ namespace GoodNightMyAngel.Player
             {
                 if (_cam != null)
                 {
-                    Vector3 forward = Vector3.ProjectOnPlane(_cam.forward, Vector3.up).normalized;
-                    Vector3 right = Vector3.ProjectOnPlane(_cam.right, Vector3.up).normalized;
+                    // Camera bir Component; ileri/yan için Camera.transform kullan
+                    Vector3 forward = Vector3.ProjectOnPlane(_cam.transform.forward, Vector3.up).normalized;
+                    Vector3 right = Vector3.ProjectOnPlane(_cam.transform.right, Vector3.up).normalized;
                     dir = forward * _moveInput.y + right * _moveInput.x;
                 }
                 else
@@ -288,15 +301,17 @@ namespace GoodNightMyAngel.Player
                 }
             }
 
-            // Zıplama kuyruğu
-            if (_jumpQueued)
-            {
-                _jumpQueued = false;
-            }
-
-            // Yerçekimi + zıplama
+            // Zıplama kuyruğu — yerdeyken ve kuyruktaysa zıpla
             bool grounded = _cc != null && _cc.isGrounded;
             if (grounded && _verticalVel < 0f) _verticalVel = -1f;
+            if (grounded && _jumpQueued)
+            {
+                _verticalVel = jumpPower;
+                _jumpQueued = false;
+                OnJumped?.Invoke();
+                if (DebugOverlay.Instance != null)
+                    DebugOverlay.Instance.Log(LogCategory.Player, "Zıpladı!", false);
+            }
             _verticalVel -= gravity * Time.deltaTime;
 
             // Hız
@@ -342,6 +357,8 @@ namespace GoodNightMyAngel.Player
         }
 
         private void OnJump(InputAction.CallbackContext ctx) => _jumpQueued = true;
+        private void OnAttack(InputAction.CallbackContext ctx) => OnAttackPressed?.Invoke();
+        private void OnInteract(InputAction.CallbackContext ctx) => OnInteractPressed?.Invoke();
 
         private void OnDestroy()
         {
