@@ -155,6 +155,37 @@ namespace GoodNightMyAngel.EditorTools
             pMat.color = new Color(0.3f, 0.6f, 0.9f);
             playerVisual.GetComponent<Renderer>().sharedMaterial = pMat;
 
+            // YÖN GÖSTERGESİ: ön tarafa bakan bir silindir (ok)
+            // Capsule'in hemen önünde, yatay, karakter döndüğünde döner
+            var aimIndicator = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            aimIndicator.name = "AimIndicator";
+            // Collider kaldır
+            var aimCol = aimIndicator.GetComponent<Collider>();
+            if (aimCol != null) Destroy(aimCol);
+            // Capsule'in child'ı olarak ekle, ön tarafa konumlandır
+            aimIndicator.transform.SetParent(player.transform, false);
+            // Cylinder default Y ekseninde duruyor; onu yatırıp Z yönüne çevir
+            aimIndicator.transform.localRotation = Quaternion.Euler(90, 0, 0);
+            // Ön tarafa, yerden biraz yukarıda
+            aimIndicator.transform.localPosition = new Vector3(0, 0.5f, 0.7f);
+            // İnce ve uzun bir ok
+            aimIndicator.transform.localScale = new Vector3(0.18f, 0.55f, 0.18f);
+            var aimMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            aimMat.color = new Color(1f, 0.95f, 0.3f, 1f);   // parlak sarı
+            aimIndicator.GetComponent<Renderer>().sharedMaterial = aimMat;
+
+            // Ok ucu (küçük küre)
+            var aimTip = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            aimTip.name = "AimTip";
+            var tipCol = aimTip.GetComponent<Collider>();
+            if (tipCol != null) Destroy(tipCol);
+            aimTip.transform.SetParent(player.transform, false);
+            aimTip.transform.localPosition = new Vector3(0, 0.5f, 1.3f);
+            aimTip.transform.localScale = new Vector3(0.25f, 0.25f, 0.25f);
+            var tipMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            tipMat.color = new Color(1f, 0.5f, 0.2f, 1f);     // turuncu uç
+            aimTip.GetComponent<Renderer>().sharedMaterial = tipMat;
+
             player.AddComponent<PlayerHealth>();
             var pc = player.AddComponent<PlayerController>();
 

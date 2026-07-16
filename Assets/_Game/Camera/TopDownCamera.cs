@@ -1,18 +1,26 @@
 // =============================================================================
 // TopDownCamera.cs
 // -----------------------------------------------------------------------------
-// Sadece karakteri takip eden basit top-down kamera.
+// Sabit açılı top-down kamera. Dünya koordinatlarında SABİT kalır:
+//   - Hiçbir zaman dönmez
+//   - Karaktere bakmaz, LookAt YAPMAZ
+//   - Sadece karakterin XZ pozisyonunu takip eder
+//   - Pitch/yaw/yön değişmez
+//
+// Bu sayede karakter fareye doğru döndüğünde kamera yerinde kalır ve
+// dünya "kendi etrafında döner" hissi oluşur (RTS / Diablo tarzı).
 //
 // Kontroller (sadeleştirildi):
 //   - Mouse wheel zoom (opsiyonel)
-//   - Kamera sadece takip eder; döndürme / edge scroll YOK
+//   - Kamera sadece takip eder
 //
 // Inspector'dan:
 //   - Hedef (oyuncu)
-//   - Mesafe, yükseklik, pitch
-//   - Yumuşak takip hızı
-//   - Zoom sınırları
-//   - Harita sınırları (clamp)
+//   - Yükseklik
+//   - Pitch (aşağı bakış açısı)
+//   - Zoom
+//   - Takip yumuşaklığı
+//   - Harita sınırları
 // ayarlanabilir.
 // =============================================================================
 
@@ -24,7 +32,8 @@ using GoodNightMyAngel.InputBridge;
 namespace GoodNightMyAngel.CameraSys
 {
     /// <summary>
-    /// Sadece takip eden top-down kamera. Karakteri ekranın merkezinde tutar.
+    /// Sabit top-down kamera. Karakteri takip eder ama asla dönmez.
+    /// Karakterin yönü değiştiğinde dünya değişir, kamera değişmez.
     /// </summary>
     public class TopDownCamera : MonoBehaviour
     {
@@ -36,14 +45,11 @@ namespace GoodNightMyAngel.CameraSys
         public Transform target;
 
         [Header("Konumlandırma")]
-        [Tooltip("Kamera yüksekliği (birim).")]
+        [Tooltip("Kamera yüksekliği (birim). Yüksek değer = daha tepeden görünüm.")]
         [Min(1f)] public float height = 11f;
 
         [Tooltip("Aşağı bakış açısı (derece). 60-70 arası tower defense için ideal.")]
         [Range(30f, 80f)] public float pitch = 65f;
-
-        [Tooltip("Yatay mesafe (kameranın oyuncudan arkaya doğru uzaklığı).")]
-        [Min(0f)] public float distance = 4f;
 
         [Header("Yumuşak Takip")]
         [Tooltip("Kamera takip yumuşaklığı (saniye). 0 = anlık takip.")]
@@ -53,11 +59,15 @@ namespace GoodNightMyAngel.CameraSys
         [Tooltip("Mouse wheel zoom aktif mi?")]
         public bool enableZoom = true;
 
-        [Tooltip("Zoom çarpanı (0.5 = yarı mesafe, 1.5 = 1.5x mesafe).")]
+        [Tooltip("Zoom çarpanı (1.0 = normal, 1.5 = 1.5x daha uzak).")]
         [Range(0.4f, 2.5f)] public float zoomLevel = 1f;
 
         [Tooltip("Zoom step (her scroll adımı).")]
         [Min(0.05f)] public float zoomStep = 0.1f;
+
+        [Header("Yön")]
+        [Tooltip("Kamera SABİT yönde kalır. 'Sabit yön' değiştirilirse kamera o yöne döner, sonra sabit kalır.")]
+        public bool resetDirectionOnStart = true;
 
         [Header("Harita Sınırları")]
         [Tooltip("Kameranın harita dışına çıkmasını engelle.")]
@@ -72,32 +82,33 @@ namespace GoodNightMyAngel.CameraSys
         // DURUM
         // -------------------------------------------------------------------------
         private Vector3 _smoothVel;
-        private Camera _cam;
+        private Quaternion _fixedRotation;        // hiç değişmeyen kamera rotasyonu
+        private bool _rotationInitialized;
 
         // -------------------------------------------------------------------------
         // YAŞAM DÖNGÜSÜ
         // -------------------------------------------------------------------------
-        private void Awake()
-        {
-            _cam = GetComponent<Camera>();
-            if (_cam == null) _cam = Camera.main;
-        }
-
         private void Start()
         {
+            // Kameranın rotasyonunu şu anki rotasyon olarak sabitle.
+            // Bu rotasyon dünya koordinatlarında değişmeyecek.
+            if (resetDirectionOnStart)
+            {
+                _fixedRotation = Quaternion.Euler(pitch, 0, 0);
+                transform.rotation = _fixedRotation;
+                _rotationInitialized = true;
+            }
+
             // İlk karede snap et
             if (target != null)
-            {
                 transform.position = ComputeDesiredPos();
-                transform.LookAt(target.position + Vector3.up * 0.5f);
-            }
         }
 
         private void LateUpdate()
         {
             if (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused) return;
 
-            // Zoom (mouse wheel)
+            // Zoom
             if (enableZoom && Mouse.current != null)
             {
                 float wheel = Mouse.current.scroll.ReadValue().y;
@@ -107,7 +118,6 @@ namespace GoodNightMyAngel.CameraSys
                 }
             }
 
-            // Hedef yoksa sabit kal
             if (target == null) return;
 
             // Hedefi harita sınırları içinde tut
@@ -119,40 +129,44 @@ namespace GoodNightMyAngel.CameraSys
                 target.position = p;
             }
 
-            // Pozisyon güncelle
+            // Sadece XZ pozisyonunu takip et, rotasyon hiç değişmez
             Vector3 desired = ComputeDesiredPos();
             if (followSmoothTime <= 0f)
+            {
                 transform.position = desired;
+            }
             else
+            {
                 transform.position = Vector3.SmoothDamp(
                     transform.position, desired, ref _smoothVel, followSmoothTime);
+            }
 
-            // Hedefe bak
-            transform.LookAt(target.position + Vector3.up * 0.5f);
+            // Rotasyonu HER FRAME sabit tut (karakterin dönmesi kamerayı etkilemez)
+            if (_rotationInitialized)
+                transform.rotation = _fixedRotation;
 
             if (DebugOverlay.Instance != null)
                 DebugOverlay.Instance.SetHudValue("Kamera Zoom", $"{zoomLevel:F2}x");
         }
 
         /// <summary>
-        /// Kameranın olması gereken pozisyonu hesapla (pivot + pitch + mesafe).
-        /// Kamera karakterin ÜSTÜNDE ve biraz arkasında olur (top-down his).
+        /// Kameranın olması gereken pozisyon. SABİT yöne göre hesaplanır,
+        /// karakterin yönü dikkate alınmaz.
         /// </summary>
         private Vector3 ComputeDesiredPos()
         {
             if (target == null) return transform.position;
 
+            // Kameranın sabit yönüne göre offset hesapla
+            // Pitch aşağı, geriye doğru (kameranın local -Z yönü)
             float pitchRad = pitch * Mathf.Deg2Rad;
-            // Kamera yönü: pitch aşağı, distance kadar geri
-            Vector3 back = -target.forward;     // karakterin baktığı yönün tersi
-            Vector3 up = Vector3.up;
 
-            // Yatay geri vektör (yer çekimi yönünde)
-            Vector3 horizontalBack = Vector3.ProjectOnPlane(back, Vector3.up).normalized;
-
-            // final pozisyon: hedef + (yatay_geri * mesafe) + (yukarı * yükseklik)
-            Vector3 offset = horizontalBack * (distance * zoomLevel)
-                           + up * (height * zoomLevel);
+            // Kamera dünya koordinatlarında -Z yönüne bakıyor
+            // Offset: hedef + (ileri yönde * yatay_mesafe) + (yukarı * yükseklik)
+            // yaw=0 olduğu için ileri yön = (0, 0, 1) (kuzey)
+            // Ama pitch ile baktığı için geri yön (-forward) hesaplanmalı
+            float horizDist = height / Mathf.Tan(pitchRad);   // yükseklik ve pitch'ten yatay mesafe
+            Vector3 offset = new Vector3(0, height, -horizDist) * zoomLevel;
             return target.position + offset;
         }
     }
