@@ -148,8 +148,9 @@ namespace GoodNightMyAngel.EditorTools
             var bmGo = new GameObject("BuildManager");
             var bm = bmGo.AddComponent<BuildManager>();
             bm.gridCenter = bed.transform;
-            // Spawn noktalarını otomatik bulur (tag ile)
-            bm.spawnPointTag = "EnemySpawn";
+            // Not: BuildManager doğrudan spawn noktalarını yönetmez,
+            // sadece yatak etrafında grid çizer. Yaratık yol çizgisi
+            // GameManager.enemySpawnPoints üzerinden çalışır (aşağıda atanacak).
 
             // Katalog için örnek BuildItemData
             var barricade = ScriptableObject.CreateInstance<BuildItemData>();
