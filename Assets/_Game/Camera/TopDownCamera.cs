@@ -3,21 +3,20 @@
 // -----------------------------------------------------------------------------
 // Orcs Must Die / Dungeon Defenders tarzı RTS-tower-defense kamera.
 //
-// Temel davranış:
-//   - Kamera oyuncuyu takip eder, ama oyuncunun ETRAFINDA döner (pivot).
-//   - Q/E veya ok tuşları ile kamera YATAY (yaw) döndürülebilir.
-//   - Mouse wheel ile zoom in/out.
-//   - Edge scrolling: fare ekran kenarına yaklaşırsa kamera kayar (RTS tarzı).
-//   - Mouse sağ tık basılıyken sürükleme ile kamera döndürülür (opsiyonel).
+// Kontroller (güncellenmiş):
+//   - Q/E veya ←/→ ile yatay (yaw) döndürme
+//   - Mouse edge scrolling (fare ekranın kenarına yaklaşınca kayar)
+//   - Mouse wheel zoom
+//   - Sağ tık ile döndürme KALDIRILDI (PlayerController için ayrıldı)
 //
 // Inspector'dan:
-//   - Hedef (oyuncu transform'u)
-//   - Mesafe, yükseklik, açı (pitch)
+//   - Hedef (oyuncu)
+//   - Mesafe, yükseklik, pitch
 //   - Yumuşak takip hızı
 //   - Zoom sınırları
-//   - Dönüş hızı (Q/E ile)
-//   - Edge scroll kenarlık genişliği
-//   - Harita sınırları (clamp)
+//   - Dönüş hızı (Q/E)
+//   - Edge scroll ayarları
+//   - Harita sınırları
 // ayarlanabilir.
 // =============================================================================
 
@@ -29,7 +28,8 @@ using GoodNightMyAngel.InputBridge;
 namespace GoodNightMyAngel.CameraSys
 {
     /// <summary>
-    /// RTS/tower defense tarzı top-down kamera.
+    /// RTS-tower-defense tarzı top-down kamera. Oyuncuyu takip eder,
+    /// oyuncu etrafında yatay olarak döndürülebilir.
     /// </summary>
     public class TopDownCamera : MonoBehaviour
     {
@@ -37,7 +37,7 @@ namespace GoodNightMyAngel.CameraSys
         // INSPECTOR
         // -------------------------------------------------------------------------
         [Header("Hedef")]
-        [Tooltip("Kameranın takip edeceği transform (oyuncu). Boşsa Camera.main yönü kullanılır.")]
+        [Tooltip("Kameranın takip edeceği transform (oyuncu). Boşsa sadece yönü kullanır.")]
         public Transform target;
 
         [Header("Konumlandırma")]
@@ -93,21 +93,12 @@ namespace GoodNightMyAngel.CameraSys
         public float minZ = -45f;
         public float maxZ = 45f;
 
-        [Header("Sürükle Döndürme (Sağ Tık)")]
-        [Tooltip("Sağ tık basılıyken fare sürükleme ile kamera döndürülsün mü?")]
-        public bool enableDragRotate = true;
-
-        [Tooltip("Sürükleme ile dönüş hızı (derece/piksel).")]
-        [Min(0.01f)] public float dragRotationSpeed = 0.4f;
-
         // -------------------------------------------------------------------------
         // DURUM
         // -------------------------------------------------------------------------
-        private float _yaw = 0f;          // Yatay açı (derece)
+        private float _yaw = 0f;
         private float _currentDist;
         private Vector3 _smoothVel;
-        private InputAction _lookAction;
-        private InputActionAsset _inputActions;
 
         // -------------------------------------------------------------------------
         // YAŞAM DÖNGÜSÜ
@@ -115,44 +106,18 @@ namespace GoodNightMyAngel.CameraSys
         private void Start()
         {
             _currentDist = distance;
-
-            // InputSystem referansı — sadece gerekiyorsa yükle
-            if (TryGetInputActions(out var actions))
-            {
-                var map = actions.FindActionMap("Player", true);
-                _lookAction = map?.FindAction("Look");
-                if (_lookAction != null) _lookAction.Enable();
-            }
-
-            // İlk karede snap et (yumuşak başlamasın)
             transform.position = ComputeDesiredPos();
             if (target != null)
                 transform.LookAt(target.position + Vector3.up * 0.5f);
         }
 
-        private bool TryGetInputActions(out InputActionAsset actions)
-        {
-            actions = null;
-            // PlayerController'dan öğren
-            var pc = FindFirstObjectByType<Player.PlayerController>();
-            if (pc != null && pc.inputActions != null) { actions = pc.inputActions; return true; }
-            // Editor'de asset'ten yükle
-            #if UNITY_EDITOR
-            actions = UnityEditor.AssetDatabase
-                .LoadAssetAtPath<InputActionAsset>("Assets/InputSystem_Actions.inputactions");
-            return actions != null;
-            #else
-            return false;
-            #endif
-        }
-
         private void LateUpdate()
         {
-            float dt = Time.deltaTime;
-            // Pause sırasında kamerayı güncelleme
             if (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused) return;
 
-            // --- 1) Klavye dönüş (Q/E veya Ok tuşları) ---
+            float dt = Time.deltaTime;
+
+            // --- Klavye dönüş (Q/E veya Ok tuşları) ---
             if (enableKeyboardRotation)
             {
                 if (LegacyInputBridge.GetKey(KeyCode.Q) || LegacyInputBridge.GetKey(KeyCode.LeftArrow))
@@ -161,17 +126,7 @@ namespace GoodNightMyAngel.CameraSys
                     _yaw += keyboardRotationSpeed * dt;
             }
 
-            // --- 2) Sağ tık + sürükleme ile dönüş ---
-            if (enableDragRotate && LegacyInputBridge.GetKey(KeyCode.Mouse1))
-            {
-                Vector2 look = _lookAction != null
-                    ? _lookAction.ReadValue<Vector2>()
-                    : Vector2.zero;
-                // Sürükleme delta'sı olarak yorumla (sol-sağ)
-                _yaw += look.x * dragRotationSpeed;
-            }
-
-            // --- 3) Zoom ---
+            // --- Zoom ---
             if (enableZoom && Mouse.current != null)
             {
                 float wheel = Mouse.current.scroll.ReadValue().y;
@@ -183,7 +138,7 @@ namespace GoodNightMyAngel.CameraSys
                 }
             }
 
-            // --- 4) Edge scroll (fare kenar kaydırma) ---
+            // --- Edge scroll ---
             if (enableEdgeScroll && target != null)
             {
                 Vector2 m = LegacyInputBridge.mousePosition;
@@ -195,67 +150,47 @@ namespace GoodNightMyAngel.CameraSys
 
                 if (move.sqrMagnitude > 0.01f)
                 {
-                    // Kameranın baktığı yöne göre world space'de kaydır
                     Quaternion yawRot = Quaternion.Euler(0, _yaw, 0);
                     Vector3 worldMove = yawRot * move.normalized * edgeScrollSpeed * dt;
-                    // Hedefi de kaydır
                     target.position += worldMove;
                 }
             }
 
-            // --- 5) Pozisyon güncelle ---
+            // --- Pozisyon güncelle ---
             Vector3 desired = ComputeDesiredPos();
             if (followSmoothTime <= 0f) transform.position = desired;
             else transform.position = Vector3.SmoothDamp(
                 transform.position, desired, ref _smoothVel, followSmoothTime);
 
-            // Hedefe bak
             if (target != null)
                 transform.LookAt(target.position + Vector3.up * 0.5f);
 
-            // --- 6) Harita sınırı ---
+            // --- Harita sınırı ---
             if (clampToMap && target != null)
             {
                 Vector3 p = target.position;
                 p.x = Mathf.Clamp(p.x, minX, maxX);
                 p.z = Mathf.Clamp(p.z, minZ, maxZ);
                 target.position = p;
-                // Kamera da clampsiz takip eder; yine de clamp uygulayalım
                 Vector3 cp = transform.position;
                 cp.x = Mathf.Clamp(cp.x, minX - 1f, maxX + 1f);
                 cp.z = Mathf.Clamp(cp.z, minZ - 1f, maxZ + 1f);
                 transform.position = cp;
             }
 
-            // HUD güncelle
             if (DebugOverlay.Instance != null)
                 DebugOverlay.Instance.SetHudValue("Kamera Mesafe", $"{_currentDist:F1}");
         }
 
-        /// <summary>
-        /// Kameranın olması gereken pozisyonu hesapla (pivot + yaw + pitch + mesafe).
-        /// </summary>
         private Vector3 ComputeDesiredPos()
         {
             if (target == null) return transform.position;
-
-            // Yatay yön (yaw)
             Quaternion yawRot = Quaternion.Euler(0, _yaw, 0);
             Vector3 horizontal = yawRot * Vector3.forward;
-
-            // Pitch ile yukarı/aşağı bileşen
             float pitchRad = pitch * Mathf.Deg2Rad;
             Vector3 offset = horizontal * (_currentDist * Mathf.Cos(pitchRad))
                            + Vector3.up   * (_currentDist * Mathf.Sin(pitchRad));
             return target.position + offset + Vector3.up * 0.5f;
-        }
-
-        // Public API: kamerayı bir noktaya hızlıca odakla (sahne kurulumunda kullanışlı)
-        public void FocusOn(Vector3 worldPos)
-        {
-            if (target != null) target.position = worldPos;
-            transform.position = ComputeDesiredPos();
-            if (target != null) transform.LookAt(target.position + Vector3.up * 0.5f);
         }
     }
 }

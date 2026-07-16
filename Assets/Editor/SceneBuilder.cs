@@ -283,7 +283,39 @@ namespace GoodNightMyAngel.EditorTools
             dcGo.AddComponent<DebugConsole>();
 
             // -----------------------------------------------------------------
-            // 14) BuildItem prefab'ları oluştur (basit küpler)
+            // 14) PathManager (Fields Runner 2 tarzı yol sistemi)
+            // -----------------------------------------------------------------
+            var pathMgr = new GameObject("PathManager");
+            var pm = pathMgr.AddComponent<PathManager>();
+            pm.bed = bedComp;
+            // Başlangıç waypoint'leri oluştur (her spawn noktası için)
+            pm.startPoints = new System.Collections.Generic.List<PathWaypoint>();
+            for (int i = 0; i < spawnList.Count; i++)
+            {
+                var go = new GameObject($"PathStart_{i}");
+                go.transform.position = spawnList[i].position;
+                go.AddComponent<PathWaypoint>();
+                var wp = go.GetComponent<PathWaypoint>();
+                // Orta waypoint (yolun ortasında küçük bir kıvrım)
+                var midGo = new GameObject($"PathMid_{i}");
+                Vector3 midPos = Vector3.Lerp(spawnList[i].position, bed.transform.position, 0.55f);
+                midPos.x += Random.Range(-3f, 3f);
+                midPos.z += Random.Range(-1f, 1f);
+                midGo.transform.position = midPos;
+                var midWp = midGo.AddComponent<PathWaypoint>();
+                wp.next = midWp;
+                // midWp.next = null (otomatik olarak bed'e gider)
+                pm.startPoints.Add(wp);
+            }
+
+            // -----------------------------------------------------------------
+            // 15) Minimap
+            // -----------------------------------------------------------------
+            var mapGo = new GameObject("Minimap");
+            mapGo.AddComponent<Minimap>();
+
+            // -----------------------------------------------------------------
+            // 16) BuildItem prefab'ları oluştur (basit küpler)
             // -----------------------------------------------------------------
             CreateBuildPrefab(barricade, PrimitiveType.Cube, new Vector3(0.8f, 0.6f, 0.8f),
                 new Color(0.5f, 0.35f, 0.2f));
