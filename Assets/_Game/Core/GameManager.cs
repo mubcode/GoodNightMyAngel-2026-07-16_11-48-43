@@ -197,7 +197,7 @@ namespace GoodNightMyAngel.Core
         private void Update()
         {
             // ESC veya P ile duraklatma
-            if (LegacyInputBridge.GetKeyDown(KeyCode.Escape) || LegacyInputBridge.GetKeyDown(KeyCode.P))
+            if (LegacyInputBridge.GetKeyDown(KeyCode.Escape))
             {
                 TogglePause();
             }

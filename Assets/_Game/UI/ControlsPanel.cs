@@ -143,7 +143,7 @@ namespace GoodNightMyAngel.UI
             _controls.Add(Make("F2", "Debug log sistemi aç/kapa"));
             _controls.Add(Make("F3", "Gün/Gece hızlı geçiş (test)"));
             _controls.Add(Make("F4", "Mouse aim ray aç/kapa"));
-            _controls.Add(Make("ESC / P", "Oyunu duraklat"));
+            _controls.Add(Make("ESC", "Oyunu duraklat / devam et"));
             _controls.Add(Make("` (backtick)", "Debug konsolu aç"));
 
             // === DEBUG KOMUTLARI ===

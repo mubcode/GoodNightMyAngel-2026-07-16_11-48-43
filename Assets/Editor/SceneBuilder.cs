@@ -352,6 +352,12 @@ namespace GoodNightMyAngel.EditorTools
             cpGo.AddComponent<ControlsPanel>();
 
             // -----------------------------------------------------------------
+            // 17) PausePanel (ESC ile duraklatma paneli)
+            // -----------------------------------------------------------------
+            var ppGo = new GameObject("PausePanel");
+            ppGo.AddComponent<PausePanel>();
+
+            // -----------------------------------------------------------------
             // 17) BuildItem prefab'ları oluştur (basit küpler)
             // -----------------------------------------------------------------
             CreateBuildPrefab(barricade, PrimitiveType.Cube, new Vector3(0.8f, 0.6f, 0.8f),

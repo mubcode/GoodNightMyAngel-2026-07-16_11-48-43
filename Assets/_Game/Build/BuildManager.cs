@@ -4,19 +4,24 @@
 // Gece build phase boyunca oyuncunun savunma elemanlarını yerleştirmesini
 // yöneten ana sistem.
 //
+// YERLEŞTIRME KURALLARI (Inspector'dan ayarlanabilir):
+//   - Yatak hücrelerine ve çevresine yerleştirilemez (bedKeepOutCells)
+//   - Yatak etrafı tamamen sarılamaz (her zaman en az 1 boş hücre kalmalı)
+//   - Bu "son geçerli" hücre build phase boyunca "kilitli" gösterilir
+//   - Eğer oyuncu yatak etrafındaki tüm hücreleri kapatmaya çalışırsa
+//     son hücre otomatik olarak kırmızı (kilitli) gösterilir
+//
 // Yeni özellikler:
 //   - Ghost (yarı saydam önizleme) hover sırasında gösterilir
 //   - Yeşil/kırmızı zemin karesi ile hücre durumu görsel olarak anlaşılır
 //   - Yol çizgisi artık gerçek düşman yolu (spawn -> bed) üzerinden çizilir
-//   - Düşman yolu göstergesinin rengi/yüksekliği Inspector'dan ayarlanabilir
 //
 // Inspector'dan:
-//   - Grid boyutu (hücre birim uzunluğu)
-//   - Grid merkezi (yatak pozisyonu etrafında)
-//   - Mevcut eşya kataloğu (BuildItemData listesi)
+//   - Grid boyutu, yarıçapı
+//   - Katalog
 //   - Başlangıç parası
-//   - Yol göstergesi (LineRenderer) için renk ve kalınlık
-//   - Ghost (preview) ve zemin işareti renkleri
+//   - Yatak keep-out hücre yarıçapı
+//   - Yol göstergesi, ghost renkleri
 // ayarlanabilir.
 // =============================================================================
 
@@ -28,8 +33,8 @@ using GoodNightMyAngel.InputBridge;
 namespace GoodNightMyAngel.Build
 {
     /// <summary>
-    /// Build phase ana yöneticisi. Grid, yerleştirme, tamir ve yol
-    /// göstergesini yönetir.
+    /// Build phase ana yöneticisi. Grid, yerleştirme, tamir, yol göstergesi
+    /// ve yatak koruma kurallarını yönetir.
     /// </summary>
     public class BuildManager : MonoBehaviour
     {
@@ -46,42 +51,33 @@ namespace GoodNightMyAngel.Build
         [Tooltip("Grid yarıçapı (hücre cinsinden, merkezden uzaklık).")]
         [Min(1)] public int gridRadiusCells = 12;
 
+        [Header("Yatak Koruma Kuralları")]
+        [Tooltip("Yatağın etrafında keep-out hücre yarıçapı. Yatak dahil 1.5 = yatak + 1 hücre boşluk.")]
+        [Min(0f)] public float bedKeepOutCells = 1.5f;
+
+        [Tooltip("Yatak etrafındaki son geçerli hücre otomatik kilitlensin mi?")]
+        public bool lockFinalApproachCell = true;
+
         [Header("Katalog")]
-        [Tooltip("Yerleştirilebilecek savunma elemanları. Sıra = hızlı seçim tuşu (1, 2, 3 ...).")]
         public List<BuildItemData> catalog = new List<BuildItemData>();
 
         [Header("Ekonomi")]
-        [Tooltip("Oyuncunun başlangıç parası.")]
         [Min(0)] public int startingCurrency = 100;
 
-        [Header("Yol Göstergesi (Düşman yolu)")]
-        [Tooltip("Yaratık yolunun gösterileceği LineRenderer. Boşsa runtime oluşturulur.")]
+        [Header("Yol Göstergesi")]
         public LineRenderer pathLine;
-
-        [Tooltip("Yol çizgisi rengi (kırmızımsı).")]
         public Color pathColor = new Color(1f, 0.3f, 0.3f, 0.85f);
-
-        [Tooltip("Yol çizgisi kalınlığı.")]
         [Min(0.01f)] public float pathWidth = 0.12f;
-
-        [Tooltip("Yol çizgisi yüksekliği (zeminden kaç birim yukarı).")]
         [Min(0f)] public float pathHeight = 0.08f;
 
         [Header("Hover / Yerleştirme Önizleme")]
-        [Tooltip("Yeşil (yerleştirilebilir) zemin karesi rengi.")]
         public Color canPlaceColor = new Color(0.3f, 1f, 0.3f, 0.45f);
-
-        [Tooltip("Kırmızı (yerleştirilemez) zemin karesi rengi.")]
         public Color cannotPlaceColor = new Color(1f, 0.3f, 0.3f, 0.45f);
-
-        [Tooltip("Hover ghost (yarı saydam eşya) göstergesinin opaklığı.")]
+        public Color lockedCellColor = new Color(0.6f, 0.1f, 0.1f, 0.7f);   // son geçerli hücre kırmızı/parlak
         [Range(0f, 1f)] public float ghostOpacity = 0.45f;
 
         [Header("Girdi")]
-        [Tooltip("Sol tık yerleştirir.")]
         public KeyCode placeKey = KeyCode.Mouse0;
-
-        [Tooltip("Sağ tık seçer/etkileşir.")]
         public KeyCode interactKey = KeyCode.Mouse1;
 
         // -------------------------------------------------------------------------
@@ -96,13 +92,16 @@ namespace GoodNightMyAngel.Build
         private Vector2Int? _hoverCell;
         private BuildItem _selectedItem;
 
-        // Ghost için prefab instance (placeholder, runtime'da oluşturulur)
+        // Ghost için
         private GameObject _ghostObj;
-        private GameObject _hoverSquareObj;       // zemine çizilen kare
+        private GameObject _hoverSquareObj;
         private Material _ghostMaterial;
         private Material _hoverSquareMaterial;
-        private Renderer _ghostRenderer;
-        private Renderer _hoverSquareRenderer;
+
+        // Yatak koruması
+        private Vector2Int _bedCell = Vector2Int.zero;
+        private HashSet<Vector2Int> _keepOutCells = new HashSet<Vector2Int>();
+        private Vector2Int? _lastValidCell;          // yatağa ulaşmak için son geçerli boş hücre
 
         public bool IsBuildPhase => GameManager.Instance != null &&
             GameManager.Instance.TimeOfDay == TimeOfDay.NightBuild;
@@ -119,7 +118,7 @@ namespace GoodNightMyAngel.Build
 
         private void Start()
         {
-            // Yolu çiz
+            BuildKeepOut();
             DrawEnemyPath();
             UpdateHud();
             if (DebugOverlay.Instance != null)
@@ -149,7 +148,6 @@ namespace GoodNightMyAngel.Build
                 GameManager.Instance.OnBuildPhaseStarted -= HandleBuildStarted;
                 GameManager.Instance.OnBuildPhaseEnded -= HandleBuildEnded;
             }
-            // Build phase bittiğinde preview gizle
             if (_ghostObj != null) _ghostObj.SetActive(false);
             if (_hoverSquareObj != null) _hoverSquareObj.SetActive(false);
         }
@@ -157,6 +155,7 @@ namespace GoodNightMyAngel.Build
         private void HandleBuildStarted(float t)
         {
             _selectedItem = null;
+            RecomputeLastValidCell();
             if (DebugOverlay.Instance != null)
                 DebugOverlay.Instance.Log(LogCategory.Build,
                     $"Build phase başladı. {t:F0}s süren var.", false);
@@ -179,7 +178,6 @@ namespace GoodNightMyAngel.Build
                 return;
             }
 
-            // Kısayol tuşları: 1..9 ile katalog seç
             for (int i = 0; i < 9; i++)
             {
                 if (LegacyInputBridge.GetKeyDown(KeyCode.Alpha1 + i) && i < catalog.Count)
@@ -194,19 +192,18 @@ namespace GoodNightMyAngel.Build
             UpdateHoverCell();
             UpdateHoverPreview();
 
-            // Sol tık -> yerleştir
             if (_hoverCell.HasValue && LegacyInputBridge.GetKeyDown(placeKey))
             {
                 TryPlaceAt(_hoverCell.Value);
+                // Her yerleştirmeden sonra son geçerli hücre tekrar hesapla
+                RecomputeLastValidCell();
             }
 
-            // Sağ tık -> seç / tamir / kaldır
             if (LegacyInputBridge.GetKeyDown(interactKey))
             {
                 TryInteractAt(_hoverCell);
             }
 
-            // R tuşu: seçili eşyayı tamir et
             if (LegacyInputBridge.GetKeyDown(KeyCode.R) && _selectedItem != null)
             {
                 TryRepair(_selectedItem);
@@ -256,29 +253,83 @@ namespace GoodNightMyAngel.Build
         }
 
         // -------------------------------------------------------------------------
+        // YATAK KORUMA KURALLARI
+        // -------------------------------------------------------------------------
+        private void BuildKeepOut()
+        {
+            _keepOutCells.Clear();
+            // Yatak pozisyonunu grid koordinatına çevir
+            Vector3 bedPos = GameManager.Instance != null && GameManager.Instance.bed != null
+                ? GameManager.Instance.bed.transform.position
+                : GridOrigin;
+            _bedCell = WorldToCell(bedPos);
+
+            // Yatak etrafında bedKeepOutCells yarıçapında hücreleri "no build" yap
+            int r = Mathf.CeilToInt(bedKeepOutCells);
+            for (int dx = -r; dx <= r; dx++)
+            {
+                for (int dz = -r; dz <= r; dz++)
+                {
+                    float d = Mathf.Sqrt(dx * dx + dz * dz);
+                    if (d <= bedKeepOutCells)
+                    {
+                        _keepOutCells.Add(new Vector2Int(_bedCell.x + dx, _bedCell.y + dz));
+                    }
+                }
+            }
+            // Yatak hücresinin kendisi de keep-out'ta
+            _keepOutCells.Add(_bedCell);
+        }
+
+        /// <summary>
+        /// Yatağa ulaşmak için kalan "son geçerli" hücreyi bul.
+        /// Yatak hücrelerine komşu olan boş hücrelerden bir tanesini
+        /// "kritik hücre" olarak seç. Eğer o hücre de kapatılırsa
+        /// yatak tamamen erişilemez olur (oyun hata durumu).
+        /// </summary>
+        private void RecomputeLastValidCell()
+        {
+            _lastValidCell = null;
+            // Yatak hücresine komşu olan 4 hücreyi kontrol et
+            Vector2Int[] neighbors = new Vector2Int[]
+            {
+                new Vector2Int(_bedCell.x + 1, _bedCell.y),
+                new Vector2Int(_bedCell.x - 1, _bedCell.y),
+                new Vector2Int(_bedCell.x, _bedCell.y + 1),
+                new Vector2Int(_bedCell.x, _bedCell.y - 1),
+            };
+            // İlk boş (eşya konulmamış) komşuyu seç
+            foreach (var n in neighbors)
+            {
+                if (!_items.ContainsKey(n) && IsCellInBounds(n))
+                {
+                    _lastValidCell = n;
+                    break;
+                }
+            }
+        }
+
+        // -------------------------------------------------------------------------
         // ÖNİZLEME OBJELERİ
         // -------------------------------------------------------------------------
         private void CreatePreviewObjects()
         {
-            // Ghost (eşya önizleme) — yarı saydam küp
             _ghostObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             _ghostObj.name = "BuildGhost";
-            // Collider lazım değil
             var col = _ghostObj.GetComponent<Collider>();
             if (col != null) Destroy(col);
             _ghostObj.SetActive(false);
-            _ghostRenderer = _ghostObj.GetComponent<Renderer>();
+            var gr = _ghostObj.GetComponent<Renderer>();
             _ghostMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-            _ghostMaterial.SetFloat("_Surface", 1);   // Transparent
+            _ghostMaterial.SetFloat("_Surface", 1);
             _ghostMaterial.SetFloat("_Blend", 0);
             _ghostMaterial.SetOverrideTag("RenderType", "Transparent");
             _ghostMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
             _ghostMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
             _ghostMaterial.SetInt("_ZWrite", 0);
             _ghostMaterial.renderQueue = 3000;
-            _ghostRenderer.sharedMaterial = _ghostMaterial;
+            gr.sharedMaterial = _ghostMaterial;
 
-            // Zemin karesi (hover)
             _hoverSquareObj = GameObject.CreatePrimitive(PrimitiveType.Quad);
             _hoverSquareObj.name = "HoverSquare";
             var col2 = _hoverSquareObj.GetComponent<Collider>();
@@ -307,30 +358,32 @@ namespace GoodNightMyAngel.Build
             }
 
             Vector2Int cell = _hoverCell.Value;
-            bool inBounds = IsCellInBounds(cell);
-            bool free = !_items.ContainsKey(cell);
-            bool canAfford = catalog.Count > 0 && _selectedIndex < catalog.Count &&
-                             Currency >= catalog[_selectedIndex].cost;
-            bool canPlace = inBounds && free && canAfford;
+            bool canPlace = CanPlaceAt(cell);
+            bool isKeepOut = _keepOutCells.Contains(cell);
+            bool isLastValid = lockFinalApproachCell && _lastValidCell.HasValue &&
+                               _lastValidCell.Value == cell;
 
-            // Zemin karesini güncelle
+            // Zemin karesi
             Vector3 cellPos = CellToWorld(cell);
             _hoverSquareObj.transform.position = cellPos + Vector3.up * 0.02f;
             _hoverSquareObj.transform.localScale = new Vector3(cellSize * 0.95f, cellSize * 0.95f, 1f);
-            _hoverSquareMaterial.color = canPlace ? canPlaceColor : cannotPlaceColor;
+
+            // Renk seçimi: locked -> kırmızı/parlak, canPlace -> yeşil, !canPlace -> kırmızı
+            Color sqColor;
+            if (isLastValid) sqColor = lockedCellColor;
+            else if (canPlace) sqColor = canPlaceColor;
+            else sqColor = cannotPlaceColor;
+            _hoverSquareMaterial.color = sqColor;
             if (!_hoverSquareObj.activeSelf) _hoverSquareObj.SetActive(true);
 
             // Ghost
-            if (catalog.Count == 0 || _selectedIndex >= catalog.Count ||
-                catalog[_selectedIndex] == null || catalog[_selectedIndex].prefab == null)
+            if (!canPlace || catalog.Count == 0 || _selectedIndex >= catalog.Count ||
+                catalog[_selectedIndex] == null)
             {
                 if (_ghostObj.activeSelf) _ghostObj.SetActive(false);
                 return;
             }
             var data = catalog[_selectedIndex];
-
-            // Ghost rengini kategoriye göre değiştirelim:
-            // Barricade -> turuncu, Trap -> kırmızı, Turret -> mavi, Slow -> cyan, Special -> mor
             Color ghostCol = data.category switch
             {
                 BuildItemCategory.Barricade => new Color(1f, 0.6f, 0.2f, ghostOpacity),
@@ -340,7 +393,7 @@ namespace GoodNightMyAngel.Build
                 BuildItemCategory.Special => new Color(0.8f, 0.4f, 1f, ghostOpacity),
                 _ => new Color(1f, 1f, 1f, ghostOpacity)
             };
-            if (!canPlace) ghostCol = new Color(0.5f, 0.2f, 0.2f, ghostOpacity);
+            if (isLastValid) ghostCol = new Color(0.8f, 0.1f, 0.1f, ghostOpacity);
 
             _ghostObj.transform.position = cellPos + Vector3.up * 0.5f;
             _ghostObj.transform.localScale = new Vector3(cellSize * 0.85f, 1f, cellSize * 0.85f);
@@ -351,22 +404,26 @@ namespace GoodNightMyAngel.Build
         // -------------------------------------------------------------------------
         // YERLEŞTİRME
         // -------------------------------------------------------------------------
-        public bool TryPlaceAt(Vector2Int cell)
+        public bool CanPlaceAt(Vector2Int cell)
         {
             if (!IsBuildPhase) return false;
             if (!IsCellInBounds(cell)) return false;
             if (_items.ContainsKey(cell)) return false;
-            if (catalog.Count == 0) return false;
-            if (_selectedIndex < 0 || _selectedIndex >= catalog.Count) return false;
-
+            if (_keepOutCells.Contains(cell)) return false;     // yatak koruma alanı
+            // Son geçerli hücre koruması
+            if (lockFinalApproachCell && _lastValidCell.HasValue && _lastValidCell.Value == cell)
+                return false;
+            if (catalog.Count == 0 || _selectedIndex < 0 || _selectedIndex >= catalog.Count) return false;
             var data = catalog[_selectedIndex];
             if (data == null) return false;
-            if (Currency < data.cost)
-            {
-                if (DebugOverlay.Instance != null)
-                    DebugOverlay.Instance.Log(LogCategory.Build, "Yetersiz para.", false);
-                return false;
-            }
+            if (Currency < data.cost) return false;
+            return true;
+        }
+
+        public bool TryPlaceAt(Vector2Int cell)
+        {
+            if (!CanPlaceAt(cell)) return false;
+            var data = catalog[_selectedIndex];
 
             GameObject prefab = data.prefab;
             Vector3 pos = CellToWorld(cell);
@@ -421,7 +478,6 @@ namespace GoodNightMyAngel.Build
             if (item == null || item.IsBroken) return false;
             float missing = item.MaxHealth - item.CurrentHealth;
             if (missing <= 0f) return false;
-
             float cost = missing * item.RepairCostPerHp;
             int costI = Mathf.CeilToInt(cost);
             if (Currency < costI)
@@ -448,15 +504,11 @@ namespace GoodNightMyAngel.Build
             }
             if (item != null) Destroy(item.gameObject);
             if (_selectedItem == item) _selectedItem = null;
+            RecomputeLastValidCell();
         }
 
         // -------------------------------------------------------------------------
         // YOL GÖSTERGESİ
-        // -------------------------------------------------------------------------
-        // Spawn noktalarından yatağa doğru **her spawn noktası için ayrı bir çizgi**
-        // çizer. Çizgi yüksekliği pathHeight kadardır ve yere yatmaz; böylece
-        // düşman yolu net olarak görünür. Çizgi ayrıca yataktan spawn noktasına
-        // doğru ok ucu gibi görünecek şekilde (renk geçişiyle) çizilir.
         // -------------------------------------------------------------------------
         private void DrawEnemyPath()
         {
@@ -467,39 +519,39 @@ namespace GoodNightMyAngel.Build
                 : GridOrigin;
             if (gmsp == null || gmsp.Length == 0) return;
 
-            // Mevcut line'ları temizle
-            if (pathLine != null) Destroy(pathLine.gameObject);
+            // Mevcut eski line'ları temizle
+            var existing = GameObject.Find("__BuildPathLines");
+            if (existing != null) Destroy(existing);
+            var root = new GameObject("__BuildPathLines");
+            root.transform.SetParent(transform);
 
-            // Her spawn noktası için bir LineRenderer oluştur
             for (int s = 0; s < gmsp.Length; s++)
             {
                 var sp = gmsp[s];
                 if (sp == null) continue;
 
                 var go = new GameObject($"EnemyPath_{s}");
-                go.transform.SetParent(transform);
+                go.transform.SetParent(root.transform);
                 var lr = go.AddComponent<LineRenderer>();
                 lr.material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
                 lr.material.color = pathColor;
                 lr.startColor = pathColor;
                 lr.endColor = pathColor;
                 lr.startWidth = pathWidth;
-                lr.endWidth = pathWidth * 1.5f;     // Bed'e doğru kalınlaşsın (vurgu)
+                lr.endWidth = pathWidth * 1.5f;
                 lr.positionCount = 2;
                 lr.useWorldSpace = true;
 
                 Vector3 a = sp.position;
                 Vector3 b = bedPos;
-                // Zeminin hemen üstünde
                 a.y = pathHeight;
                 b.y = pathHeight;
                 lr.SetPosition(0, a);
                 lr.SetPosition(1, b);
-                lr.numCapVertices = 4;             // Uçlarda yumuşak
+                lr.numCapVertices = 4;
             }
 
-            // Sahnede sadece ilk line'ı referans al (Inspector için)
-            var first = transform.Find("EnemyPath_0");
+            var first = root.transform.Find("EnemyPath_0");
             if (first != null) pathLine = first.GetComponent<LineRenderer>();
         }
 
@@ -540,6 +592,22 @@ namespace GoodNightMyAngel.Build
                 Vector3 a = origin + new Vector3(-r * cellSize, 0, z * cellSize);
                 Vector3 b = origin + new Vector3(r * cellSize, 0, z * cellSize);
                 Gizmos.DrawLine(a, b);
+            }
+
+            // Yatak keep-out
+            Gizmos.color = new Color(1f, 0.3f, 0.3f, 0.3f);
+            foreach (var c in _keepOutCells)
+            {
+                Vector3 p = CellToWorld(c);
+                Gizmos.DrawWireCube(p + Vector3.up * 0.05f, new Vector3(cellSize, 0.1f, cellSize));
+            }
+
+            // Son geçerli hücre
+            if (_lastValidCell.HasValue)
+            {
+                Gizmos.color = new Color(1f, 0f, 0f, 0.7f);
+                Vector3 p = CellToWorld(_lastValidCell.Value);
+                Gizmos.DrawWireCube(p + Vector3.up * 0.06f, new Vector3(cellSize * 0.95f, 0.12f, cellSize * 0.95f));
             }
         }
     }

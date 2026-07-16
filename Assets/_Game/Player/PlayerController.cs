@@ -1,21 +1,24 @@
 // =============================================================================
 // PlayerController.cs
 // -----------------------------------------------------------------------------
-// MOBA/RPG tarzı kontrol: WASD ile hareket, mouse ile rotasyon, Space ile
-// zıplama, ray (sanal çizgi) ile hedef göstergesi.
+// MOBA/RPG + Quake/CS tarzı hareket (bunny hop destekli).
+//
+// HAREKET MODELİ:
+//   - Yerde: WASD -> anında o hızda hareket
+//   - Sprint (Left Shift): maxSpeed * sprintMultiplier
+//   - Havadayken (airControl): ivmelenme uygulanır (airAccelerate)
+//   - Space: yerdeyse zıpla. Zıplama anındaki yatay hız korunur (bunny hop).
+//   - Top speed: maxMoveSpeed (havada da geçerli, aşılamaz).
 //
 // Inspector'dan:
-//   - Hareket hızı
-//   - Sprint çarpanı
-//   - Dönüş hızı
-//   - Zıplama gücü, yer çekimi
-//   - Crosshair prefab'ı (boşsa basit küp oluşturulur)
-//   - Ray görsel rengi/kalınlığı
-//   - Yer çekimi
+//   - moveSpeed, sprintMultiplier
+//   - turnSpeed (rotasyon)
+//   - gravity, jumpPower
+//   - airAccelerate: havadayken uygulanan ivme (0-30)
+//   - maxMoveSpeed: ulaşılabilecek maksimum yatay hız (top speed)
+//   - friction (yerde)
+//   - mouse aim ray, crosshair renkleri
 // ayarlanabilir.
-//
-// Yeni Input System üzerinden: Move (Vector2), Sprint (Button), Jump (Button).
-// Mouse rotasyonu LegacyInputBridge üzerinden okunur (Pointer position).
 // =============================================================================
 
 using UnityEngine;
@@ -26,10 +29,7 @@ using GoodNightMyAngel.InputBridge;
 namespace GoodNightMyAngel.Player
 {
     /// <summary>
-    /// MOBA/RPG tarzı oyuncu kontrol scripti.
-    /// Hareket: WASD / Sol analog.
-    /// Rotasyon: Mouse pozisyonuna göre (mouse = oyundaki crosshair).
-    /// Zıplama: Space.
+    /// Quake/CS tarzı hareket + MOBA tarzı nişan.
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
     public class PlayerController : MonoBehaviour
@@ -39,61 +39,57 @@ namespace GoodNightMyAngel.Player
         // -------------------------------------------------------------------------
         [Header("Hareket")]
         [Tooltip("Normal yürüme hızı (birim/saniye).")]
-        [Min(0f)] public float moveSpeed = 4f;
+        [Min(0f)] public float moveSpeed = 5f;
 
         [Tooltip("Sprint (koşma) hızı çarpanı.")]
         [Min(1f)] public float sprintMultiplier = 1.6f;
 
-        [Tooltip("Dönüş hızı (derece/saniye). 0 = anlık dönüş.")]
-        [Min(0f)] public float turnSpeed = 720f;
+        [Tooltip("Maksimum yatay hız (top speed). Bunny hop sırasında bu sınırı aşamaz.")]
+        [Min(1f)] public float maxMoveSpeed = 8f;
 
-        [Tooltip("Hareket girdisi bu eşiğin altındaysa sıfır kabul edilir (ölü bölge).")]
-        [Range(0f, 0.5f)] public float moveDeadzone = 0.1f;
+        [Tooltip("Sprint ile birlikte max hız (sprintMaxSpeed, maxMoveSpeed'den büyük olabilir).")]
+        [Min(1f)] public float sprintMaxSpeed = 12f;
 
-        [Header("Zıplama / Yerçekimi")]
         [Tooltip("Yerçekimi (birim/saniye²).")]
         public float gravity = 20f;
 
+        [Tooltip("Yer friction (saniyede hız kaybı çarpanı). 0 = sürtünme yok, 10 = hızlı durma.")]
+        [Range(0f, 15f)] public float groundFriction = 8f;
+
+        [Tooltip("Havadayken ivmelenme (air accelerate). Quake stili. 0 = havada kontrol yok, 30 = çok hassas.")]
+        [Range(0f, 50f)] public float airAccelerate = 12f;
+
         [Tooltip("Zıplama gücü (birim/saniye).")]
-        [Min(0f)] public float jumpPower = 7f;
+        [Min(0f)] public float jumpPower = 7.5f;
 
-        [Tooltip("Havadayken kontrol azalsın mı? (False = havada tam kontrol)")]
-        public bool airControl = true;
+        [Tooltip("Hareket girdisi bu eşiğin altındaysa sıfır kabul edilir.")]
+        [Range(0f, 0.5f)] public float moveDeadzone = 0.1f;
 
-        [Tooltip("Havadayken hareket çarpanı (airControl=true ise).")]
-        [Range(0f, 1f)] public float airControlFactor = 0.5f;
+        [Header("Rotasyon")]
+        [Tooltip("Dönüş hızı (derece/saniye). 0 = anlık.")]
+        [Min(0f)] public float turnSpeed = 720f;
 
         [Header("Input")]
-        [Tooltip("Yeni Input System için InputActionAsset.")]
         public InputActionAsset inputActions;
 
         // -------------------------------------------------------------------------
         // INSPECTOR — MOUSE / CROSSHAIR
         // -------------------------------------------------------------------------
         [Header("Mouse / Crosshair")]
-        [Tooltip("Crosshair (oyun içi cursor) için prefab. Boşsa runtime'da basit bir küp oluşturulur.")]
         public GameObject crosshairPrefab;
-
-        [Tooltip("Crosshair rengi (küre/küp rengi).")]
         public Color crosshairColor = new Color(1f, 0.95f, 0.5f, 0.85f);
-
-        [Tooltip("Crosshair boyutu.")]
         [Min(0.05f)] public float crosshairSize = 0.35f;
 
-        [Tooltip("Mouse ray çizgisi rengi.")]
         public Color rayColor = new Color(1f, 0.9f, 0.4f, 0.6f);
-
-        [Tooltip("Mouse ray çizgisi kalınlığı.")]
         [Min(0.005f)] public float rayWidth = 0.04f;
 
-        [Tooltip("Ray yüksekliği (zeminden ne kadar yukarı).")]
-        [Min(0f)] public float rayHeight = 0.05f;
+        [Tooltip("Aim ray ekran alanından çıktıktan sonra ne kadar uzatılsın (dünya birimi).")]
+        [Min(5f)] public float rayOffscreenExtension = 50f;
 
-        [Tooltip("Zemini göstermek için LayerMask (ray hangi katmana çarpar).")]
+        [Tooltip("Zemini göstermek için LayerMask.")]
         public LayerMask groundMask = ~0;
 
         [Header("Debug")]
-        [Tooltip("Hareket vektörünü konsola her saniye yazdır.")]
         public bool logMoveEverySecond = false;
 
         // -------------------------------------------------------------------------
@@ -112,18 +108,21 @@ namespace GoodNightMyAngel.Player
         private float _verticalVel;
         private float _logTimer;
 
+        // Yatay hız (xz düzleminde)
+        private Vector3 _horizontalVel = Vector3.zero;
+        public Vector3 HorizontalVelocity => _horizontalVel;
+        public float CurrentSpeed => _horizontalVel.magnitude;
+
         // Mouse / crosshair
         private Camera _cam;
         private GameObject _crosshair;
-        private Renderer _crosshairRenderer;
         private LineRenderer _rayLine;
-        private Vector3 _lastGroundHit;       // en son ray'in yere değdiği nokta
+        private Vector3 _lastGroundHit;
         private bool _hasGroundHit;
 
-        // Dışarıdan okunacak
         public Vector3 AimPoint => _lastGroundHit;
         public bool HasAim => _hasGroundHit;
-        public Vector3 CurrentMoveVector { get; private set; }
+        public Vector3 CurrentMoveVector => _horizontalVel;
 
         // Events
         public event System.Action OnAttackPressed;
@@ -138,7 +137,6 @@ namespace GoodNightMyAngel.Player
             _cc = GetComponent<CharacterController>();
             _cam = Camera.main;
 
-            // InputAction referanslarını çöz
             if (inputActions == null)
             {
                 #if UNITY_EDITOR
@@ -200,7 +198,6 @@ namespace GoodNightMyAngel.Player
             }
             else
             {
-                // Basit bir küp oluştur (mouse ucunda görünecek)
                 _crosshair = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 _crosshair.name = "Crosshair";
                 var col = _crosshair.GetComponent<Collider>();
@@ -214,7 +211,7 @@ namespace GoodNightMyAngel.Player
                     r.sharedMaterial = mat;
                 }
             }
-            _crosshair.SetActive(false);   // sahne yüklenene kadar gizle
+            _crosshair.SetActive(false);
         }
 
         private void CreateRayVisual()
@@ -238,12 +235,10 @@ namespace GoodNightMyAngel.Player
             if (_cam == null) { _hasGroundHit = false; return; }
 
             Ray ray = _cam.ScreenPointToRay(LegacyInputBridge.mousePosition);
-            if (Physics.Raycast(ray, out RaycastHit hit, 200f, groundMask, QueryTriggerInteraction.Ignore))
+            if (Physics.Raycast(ray, out RaycastHit hit, 500f, groundMask, QueryTriggerInteraction.Ignore))
             {
                 _lastGroundHit = hit.point;
                 _hasGroundHit = true;
-
-                // Crosshair mouse ile aynı koordinatta
                 if (_crosshair != null)
                 {
                     if (!_crosshair.activeSelf) _crosshair.SetActive(true);
@@ -256,23 +251,35 @@ namespace GoodNightMyAngel.Player
                 if (_crosshair != null) _crosshair.SetActive(false);
             }
 
-            // Ray çizgisi (karakter -> crosshair)
-            if (_rayLine != null && _hasGroundHit)
+            // Aim ray: sonsuz uzanır (ekran dışında da devam eder, performans için
+            // belli bir mesafede kesilir)
+            if (_rayLine != null)
             {
                 _rayLine.enabled = true;
                 Vector3 a = transform.position + Vector3.up * 0.6f;
-                Vector3 b = _lastGroundHit + Vector3.up * rayHeight;
+                Vector3 b;
+
+                if (_hasGroundHit)
+                {
+                    b = _lastGroundHit + Vector3.up * 0.05f;
+                }
+                else
+                {
+                    // Eğer yere değmiyorsa, mouse yönünde ileriye doğru uzat
+                    Vector3 screenPoint = LegacyInputBridge.mousePosition;
+                    // Ekran dışındaysa da yönü hesapla
+                    Vector3 dir3D = ray.direction.normalized;
+                    // Eğer mouse ekran sınırları dışındaysa, yönü daha da uzat
+                    b = a + dir3D * rayOffscreenExtension;
+                }
+
                 _rayLine.SetPosition(0, a);
                 _rayLine.SetPosition(1, b);
-            }
-            else if (_rayLine != null)
-            {
-                _rayLine.enabled = false;
             }
         }
 
         // -------------------------------------------------------------------------
-        // UPDATE
+        // HAREKET — Quake / CS tarzı
         // -------------------------------------------------------------------------
         private void Update()
         {
@@ -284,26 +291,35 @@ namespace GoodNightMyAngel.Player
             if (_moveAction != null) _moveInput = _moveAction.ReadValue<Vector2>();
             _sprintHeld = _sprintAction != null && _sprintAction.IsPressed();
 
-            // Kamera yönüne göre dünya hareketi
-            Vector3 dir = Vector3.zero;
-            if (_moveInput.sqrMagnitude > moveDeadzone * moveDeadzone)
+            // Hedef yön (kamera yönüne göre)
+            Vector3 wishDir = ComputeWishDirection();
+
+            // Yatay hız işlemleri
+            bool grounded = _cc != null && _cc.isGrounded;
+
+            if (grounded)
             {
-                if (_cam != null)
+                // Yerde: friction uygula
+                ApplyFriction();
+                // Yatay hızı hedef yöne doğru ekle (anında ivmelenme)
+                if (wishDir.sqrMagnitude > 0.01f)
                 {
-                    // Camera bir Component; ileri/yan için Camera.transform kullan
-                    Vector3 forward = Vector3.ProjectOnPlane(_cam.transform.forward, Vector3.up).normalized;
-                    Vector3 right = Vector3.ProjectOnPlane(_cam.transform.right, Vector3.up).normalized;
-                    dir = forward * _moveInput.y + right * _moveInput.x;
+                    float maxSpeed = GetMaxSpeed();
+                    Accelerate(wishDir, maxSpeed, 10f);   // yerde yüksek accel
                 }
-                else
-                {
-                    dir = new Vector3(_moveInput.x, 0, _moveInput.y);
-                }
+                // Yere değince yatay hızı sınırla
+                ClampSpeed(GetMaxSpeed());
+            }
+            else
+            {
+                // Havada: air accelerate
+                if (wishDir.sqrMagnitude > 0.01f)
+                    Accelerate(wishDir, GetMaxSpeed(), airAccelerate);
+                // Havadayken de max hız sınırı (bunny hop hız limiti)
+                ClampSpeed(GetMaxSpeed());
             }
 
-            // Zıplama kuyruğu — yerdeyken ve kuyruktaysa zıpla
-            bool grounded = _cc != null && _cc.isGrounded;
-            if (grounded && _verticalVel < 0f) _verticalVel = -1f;
+            // Zıplama (yerdeyse)
             if (grounded && _jumpQueued)
             {
                 _verticalVel = jumpPower;
@@ -312,17 +328,15 @@ namespace GoodNightMyAngel.Player
                 if (DebugOverlay.Instance != null)
                     DebugOverlay.Instance.Log(LogCategory.Player, "Zıpladı!", false);
             }
+
+            // Yerçekimi
+            if (grounded && _verticalVel < 0f) _verticalVel = -1f;
             _verticalVel -= gravity * Time.deltaTime;
 
-            // Hız
-            float speedMul = _sprintHeld ? sprintMultiplier : 1f;
-            float airMul = (airControl && !grounded) ? airControlFactor : 1f;
-            Vector3 horizontal = dir.normalized * moveSpeed * speedMul * airMul;
-
-            // Karakter controller
+            // Character controller hareket
             if (_cc != null)
             {
-                Vector3 motion = horizontal + Vector3.up * _verticalVel;
+                Vector3 motion = _horizontalVel + Vector3.up * _verticalVel;
                 _cc.Move(motion * Time.deltaTime);
             }
 
@@ -339,8 +353,6 @@ namespace GoodNightMyAngel.Player
                 }
             }
 
-            CurrentMoveVector = horizontal;
-
             // Opsiyonel log
             if (logMoveEverySecond)
             {
@@ -350,10 +362,62 @@ namespace GoodNightMyAngel.Player
                     _logTimer = 0f;
                     if (DebugOverlay.Instance != null)
                         DebugOverlay.Instance.Log(LogCategory.Player,
-                            $"Move input=({_moveInput.x:F2},{_moveInput.y:F2}) " +
+                            $"Speed={_horizontalVel.magnitude:F1} " +
                             $"grounded={grounded} sprint={_sprintHeld}", false);
                 }
             }
+        }
+
+        private Vector3 ComputeWishDirection()
+        {
+            if (_moveInput.sqrMagnitude < moveDeadzone * moveDeadzone)
+                return Vector3.zero;
+
+            Vector3 dir;
+            if (_cam != null)
+            {
+                Vector3 forward = Vector3.ProjectOnPlane(_cam.transform.forward, Vector3.up).normalized;
+                Vector3 right = Vector3.ProjectOnPlane(_cam.transform.right, Vector3.up).normalized;
+                dir = forward * _moveInput.y + right * _moveInput.x;
+            }
+            else
+            {
+                dir = new Vector3(_moveInput.x, 0, _moveInput.y);
+            }
+            dir.y = 0f;
+            return dir.normalized;
+        }
+
+        private float GetMaxSpeed()
+        {
+            return _sprintHeld ? sprintMaxSpeed : maxMoveSpeed;
+        }
+
+        // Quake tarzı accelerate: hedef yöne doğru mevcut hızı ekler (kısa zaman içinde)
+        private void Accelerate(Vector3 wishDir, float wishSpeed, float accel)
+        {
+            float currentSpeedInDir = Vector3.Dot(_horizontalVel, wishDir);
+            float addSpeed = Mathf.Clamp(wishSpeed - currentSpeedInDir, 0f, accel * Time.deltaTime);
+            _horizontalVel += wishDir * addSpeed;
+        }
+
+        // Friction (yerde)
+        private void ApplyFriction()
+        {
+            float speed = _horizontalVel.magnitude;
+            if (speed < 0.01f) { _horizontalVel = Vector3.zero; return; }
+
+            float drop = speed * groundFriction * Time.deltaTime;
+            float newSpeed = Mathf.Max(0f, speed - drop);
+            _horizontalVel *= (newSpeed / speed);
+        }
+
+        // Top speed clamp (havada da geçerli)
+        private void ClampSpeed(float max)
+        {
+            float sp = _horizontalVel.magnitude();
+            if (sp > max)
+                _horizontalVel *= max / sp;
         }
 
         private void OnJump(InputAction.CallbackContext ctx) => _jumpQueued = true;
@@ -365,9 +429,6 @@ namespace GoodNightMyAngel.Player
             if (_crosshair != null) Destroy(_crosshair);
         }
 
-        // -------------------------------------------------------------------------
-        // DEBUG
-        // -------------------------------------------------------------------------
         private void OnDrawGizmos()
         {
             if (_hasGroundHit)

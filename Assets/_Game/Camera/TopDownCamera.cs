@@ -62,8 +62,14 @@ namespace GoodNightMyAngel.CameraSys
         [Tooltip("Zoom çarpanı (1.0 = normal, 1.5 = 1.5x daha uzak).")]
         [Range(0.4f, 2.5f)] public float zoomLevel = 1f;
 
-        [Tooltip("Zoom step (her scroll adımı).")]
-        [Min(0.05f)] public float zoomStep = 0.1f;
+        [Tooltip("Zoom step (her scroll adımı). Yüksek = daha hızlı zoom.")]
+        [Min(0.05f)] public float zoomStep = 0.5f;
+
+        [Tooltip("Zoom sınırı (max). Bu değerin üstüne çıkamaz.")]
+        [Min(0.4f)] public float maxZoom = 2.0f;
+
+        [Tooltip("Zoom sınırı (min). Bu değerin altına inemez.")]
+        [Min(0.4f)] public float minZoom = 0.5f;
 
         [Header("Yön")]
         [Tooltip("Kamera SABİT yönde kalır. 'Sabit yön' değiştirilirse kamera o yöne döner, sonra sabit kalır.")]
@@ -114,7 +120,8 @@ namespace GoodNightMyAngel.CameraSys
                 float wheel = Mouse.current.scroll.ReadValue().y;
                 if (Mathf.Abs(wheel) > 0.01f)
                 {
-                    zoomLevel = Mathf.Clamp(zoomLevel - wheel * zoomStep * 0.05f, 0.4f, 2.5f);
+                    // zoomStep daha yüksek = daha hızlı zoom. Min/max sınırları Inspector'dan.
+                    zoomLevel = Mathf.Clamp(zoomLevel - wheel * zoomStep * 0.01f, minZoom, maxZoom);
                 }
             }
 
