@@ -97,6 +97,8 @@ namespace GoodNightMyAngel.Build
         private GameObject _hoverSquareObj;
         private Material _ghostMaterial;
         private Material _hoverSquareMaterial;
+        private Renderer _ghostRenderer;
+        private Renderer _hoverSquareRenderer;
 
         // Yatak koruması
         private Vector2Int _bedCell = Vector2Int.zero;

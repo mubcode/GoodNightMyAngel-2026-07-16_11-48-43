@@ -415,7 +415,7 @@ namespace GoodNightMyAngel.Player
         // Top speed clamp (havada da geçerli)
         private void ClampSpeed(float max)
         {
-            float sp = _horizontalVel.magnitude();
+            float sp = _horizontalVel.magnitude;
             if (sp > max)
                 _horizontalVel *= max / sp;
         }
