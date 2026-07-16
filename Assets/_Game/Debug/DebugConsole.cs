@@ -136,16 +136,11 @@ namespace GoodNightMyAngel.DebugTools
                 case "addmoney":
                     if (parts.Length > 1 && int.TryParse(parts[1], out int m))
                     {
-                        // BuildManager'a ulaşmaya çalış
                         var bm = FindFirstObjectByType<Build.BuildManager>();
                         if (bm != null)
                         {
-                            // Currency'yi artırmak için reflection yok; basit yol:
-                            // Yeterli para olarak kalmaya devam edebilmesi için
-                            // doğrudan katalogdan yerleştirme limiti yok,
-                            // ama negatif olursa düzeltmek zor.
-                            _history.Add($"Para ekleme (manuel): BuildManager'a yansımaz, " +
-                                         $"BuildManager.startingCurrency Inspector'ından ayarlayın.");
+                            bm.AddCurrency(m);
+                            _history.Add($"+{m} para eklendi. Toplam: {bm.Currency}");
                         }
                     }
                     break;

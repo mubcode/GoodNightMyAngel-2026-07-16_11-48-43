@@ -42,11 +42,11 @@ namespace GoodNightMyAngel.Enemies
         [Tooltip("Tüm yolları sahnede LineRenderer ile çiz.")]
         public bool drawPaths = true;
 
-        [Tooltip("Yol çizgisi rengi.")]
-        public Color pathColor = new Color(0.3f, 1f, 0.4f, 0.85f);
+        [Tooltip("Yol çizgisi rengi (yarı transparent beyaz, klasik path göstergesi).")]
+        public Color pathColor = new Color(1f, 1f, 1f, 0.45f);
 
         [Tooltip("Yol çizgisi kalınlığı.")]
-        [Min(0.01f)] public float pathWidth = 0.1f;
+        [Min(0.01f)] public float pathWidth = 0.08f;
 
         [Tooltip("Yol çizgisi yüksekliği.")]
         [Min(0f)] public float pathHeight = 0.05f;

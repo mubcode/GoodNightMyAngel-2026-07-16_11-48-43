@@ -39,7 +39,7 @@ namespace GoodNightMyAngel.Player
         // -------------------------------------------------------------------------
         [Header("Hareket")]
         [Tooltip("Normal yürüme hızı (birim/saniye).")]
-        [Min(0f)] public float moveSpeed = 5f;
+        [Min(0f)] public float moveSpeed = 7f;
 
         [Tooltip("Sprint (koşma) hızı çarpanı.")]
         [Min(1f)] public float sprintMultiplier = 1.6f;
@@ -69,8 +69,13 @@ namespace GoodNightMyAngel.Player
         [Tooltip("Dönüş hızı (derece/saniye). 0 = anlık.")]
         [Min(0f)] public float turnSpeed = 720f;
 
-        [Header("Input")]
-        public InputActionAsset inputActions;
+        [Header("Silah")]
+        [Tooltip("Bu objeye eklenen Weapon component'ine otomatik ateş eder. " +
+                 "Boşsa runtime'da bir tane eklenir.")]
+        public Weapon weapon;
+
+        [Tooltip("R tuşu reload tetikler (Weapon üzerinden).")]
+        public KeyCode reloadKey = KeyCode.R;
 
         // -------------------------------------------------------------------------
         // INSPECTOR — MOUSE / CROSSHAIR
@@ -286,6 +291,17 @@ namespace GoodNightMyAngel.Player
             if (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused) return;
 
             UpdateMouseAim();
+
+            // ATEŞ (sol tık) — LegacyInputBridge üzerinden
+            if (LegacyInputBridge.GetKeyDown(KeyCode.Mouse0))
+            {
+                if (weapon != null) weapon.TryFire();
+            }
+            // Reload (R)
+            if (LegacyInputBridge.GetKeyDown(reloadKey))
+            {
+                if (weapon != null) weapon.StartReload();
+            }
 
             // Input oku
             if (_moveAction != null) _moveInput = _moveAction.ReadValue<Vector2>();

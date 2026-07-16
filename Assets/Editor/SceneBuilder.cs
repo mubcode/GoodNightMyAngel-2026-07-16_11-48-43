@@ -188,6 +188,9 @@ namespace GoodNightMyAngel.EditorTools
 
             player.AddComponent<PlayerHealth>();
             var pc = player.AddComponent<PlayerController>();
+            // Silah
+            var weapon = player.AddComponent<Player.Weapon>();
+            weapon.muzzle = playerVisual.transform;
 
             // -----------------------------------------------------------------
             // 5) Kamera (top-down)

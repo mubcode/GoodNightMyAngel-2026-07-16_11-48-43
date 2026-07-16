@@ -149,6 +149,9 @@ namespace GoodNightMyAngel.Enemies
                 hb.heightOffset = isBoss ? 2.6f : 1.4f;
                 hb.height = isBoss ? 0.22f : 0.14f;
                 hb.foregroundColor = isBoss ? new Color(1f, 0.3f, 0.3f) : new Color(0.9f, 0.4f, 0.4f);
+                // Sadece oyuncu menzili içindeyken göster
+                hb.showOnlyInPlayerRange = true;
+                hb.playerRange = 15f;
             }
         }
 
@@ -166,6 +169,8 @@ namespace GoodNightMyAngel.Enemies
         protected virtual void Update()
         {
             if (IsDead) return;
+            // Pause sırasında bekle (zaman azalmasın)
+            if (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused) return;
 
             _attackTimer -= Time.deltaTime;
             _damageCooldown -= Time.deltaTime;

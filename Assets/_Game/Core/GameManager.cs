@@ -260,9 +260,12 @@ namespace GoodNightMyAngel.Core
 
         private IEnumerator NightLoop()
         {
-            // 1) Build phase
+            // 1) Build phase — geri sayım (PAUSE-aware)
             while (BuildPhaseTimeRemaining > 0f && Status == GameStatus.Playing)
             {
+                // Pause sırasında burada bekle (zaman azalmasın)
+                while (Status == GameStatus.Paused) yield return null;
+
                 BuildPhaseTimeRemaining -= Time.deltaTime;
                 if (DebugOverlay.Instance != null)
                     DebugOverlay.Instance.SetHudValue("Build Süresi", $"{Mathf.Max(0, BuildPhaseTimeRemaining):F1}s");
@@ -326,12 +329,14 @@ namespace GoodNightMyAngel.Core
 
             OnWaveStarted?.Invoke(waveIndex, enemyCount);
 
-            // Spawner'a düşmanları çağırt. Spawner kendi içinde süreye yayar.
+            // Spawner'a düşmanları çağırt.
             Enemies.EnemySpawner.SpawnWave(enemyCount, hpMul);
 
-            // Spawner'ın tüm düşmanlar ölünceye kadar bekle.
-            while (Enemies.EnemySpawner.AliveCount > 0 && Status == GameStatus.Playing)
+            // Tüm düşmanlar ölünceye kadar bekle (PAUSE-aware)
+            while ((Enemies.EnemySpawner.AliveCount > 0 && Status == GameStatus.Playing) ||
+                   (Status == GameStatus.Paused))
             {
+                while (Status == GameStatus.Paused) yield return null;
                 if (DebugOverlay.Instance != null)
                     DebugOverlay.Instance.SetHudValue("Kalan Düşman", Enemies.EnemySpawner.AliveCount.ToString());
                 yield return null;
@@ -427,16 +432,19 @@ namespace GoodNightMyAngel.Core
 
         public void Pause()
         {
+            if (Status == GameStatus.Paused) return;
             Status = GameStatus.Paused;
-            Time.timeScale = 0f;
+            // Time.timeScale kullanmıyoruz çünkü coroutine'leri de durduruyor.
+            // Bunun yerine Status bayrağı + Update kontrolleriyle yönetiyoruz.
+            // Zamanlayıcılar (HUD, animasyon) Time.unscaledDeltaTime kullanır.
             LogDay("Oyun duraklatıldı.");
             OnPauseChanged?.Invoke(true);
         }
 
         public void Resume()
         {
+            if (Status != GameStatus.Paused) return;
             Status = GameStatus.Playing;
-            Time.timeScale = 1f;
             LogDay("Oyun devam ediyor.");
             OnPauseChanged?.Invoke(false);
         }

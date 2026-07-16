@@ -66,6 +66,13 @@ namespace GoodNightMyAngel.World
         [Tooltip("Bar doldurulduğunda hızlıca bir pop animasyonu (görsel feed-back).")]
         public bool showFlashOnDamage = true;
 
+        [Header("Görünürlük (Oyuncu Menzili)")]
+        [Tooltip("Sadece oyuncu belirli bir mesafe içindeyken göster.")]
+        public bool showOnlyInPlayerRange = false;
+
+        [Tooltip("Oyuncu menzili (birim). Bu mesafenin dışındaki objenin barı gizlenir.")]
+        [Min(1f)] public float playerRange = 12f;
+
         // -------------------------------------------------------------------------
         // DURUM
         // -------------------------------------------------------------------------
@@ -141,6 +148,17 @@ namespace GoodNightMyAngel.World
                 shouldShow = false;
             if (Time.time - _lastDamageTime > hideAfter)
                 shouldShow = false;
+
+            // Oyuncu menzili kontrolü — menzil dışındaysa gizle
+            if (shouldShow && showOnlyInPlayerRange)
+            {
+                var player = GameObject.FindGameObjectWithTag("Player");
+                if (player != null)
+                {
+                    float d = Vector3.Distance(transform.position, player.transform.position);
+                    if (d > playerRange) shouldShow = false;
+                }
+            }
 
             if (_barRoot != null && _barRoot.activeSelf != shouldShow)
                 _barRoot.SetActive(shouldShow);

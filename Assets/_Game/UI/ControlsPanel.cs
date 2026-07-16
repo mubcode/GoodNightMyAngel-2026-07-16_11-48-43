@@ -123,8 +123,10 @@ namespace GoodNightMyAngel.UI
             // === TEMEL HAREKET ===
             _controls.Add(Make("WASD / Sol Analog", "Hareket"));
             _controls.Add(Make("Sol Shift", "Sprint (koşma)"));
-            _controls.Add(Make("SPACE", "Zıplama"));
+            _controls.Add(Make("SPACE", "Zıplama (bunny hop)"));
             _controls.Add(Make("Mouse", "Nişan al (karakter döner)"));
+            _controls.Add(Make("Sol Tık", "Ateş et"));
+            _controls.Add(Make("R", "Reload (şarjör doldur)"));
 
             // === KAMERA ===
             _controls.Add(Make("Mouse Wheel", "Kamera zoom"));

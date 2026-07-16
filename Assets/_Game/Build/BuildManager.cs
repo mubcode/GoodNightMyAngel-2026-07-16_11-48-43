@@ -85,6 +85,15 @@ namespace GoodNightMyAngel.Build
         // -------------------------------------------------------------------------
         public int Currency { get; private set; }
 
+        public void AddCurrency(int amount)
+        {
+            Currency = Mathf.Max(0, Currency + amount);
+            UpdateHud();
+            if (DebugOverlay.Instance != null)
+                DebugOverlay.Instance.Log(LogCategory.Build,
+                    $"Para: {Currency} (+{amount})", false);
+        }
+
         private readonly Dictionary<Vector2Int, BuildItem> _items = new Dictionary<Vector2Int, BuildItem>();
 
         private int _selectedIndex = 0;

@@ -147,6 +147,20 @@ namespace GoodNightMyAngel.UI
                 DrawBox(rect, $"💰 {bm.Currency} altın", currencyColor, hudBg, hudBorder);
             }
 
+            // --- Sağ-üst (alt satır): Şarjör ---
+            var weapon = FindFirstObjectByType<Player.Weapon>();
+            if (weapon != null)
+            {
+                var rect = new Rect(Screen.width - 160 + currencyPos.x, 56 + currencyPos.y, 140, 30);
+                string ammoText = weapon.IsReloading
+                    ? $"🔄 Reload {weapon.ReloadProgress * 100:F0}%"
+                    : $"🔫 {weapon.CurrentAmmo} / {weapon.MaxAmmo}";
+                Color c = weapon.IsReloading ? new Color(1f, 0.6f, 0.3f) :
+                          weapon.CurrentAmmo == 0 ? new Color(1f, 0.3f, 0.3f) :
+                          new Color(0.7f, 0.95f, 0.4f);
+                DrawBox(rect, ammoText, c, hudBg, hudBorder);
+            }
+
             // --- Sol-alt: Call Mom göstergesi ---
             var callMom = FindFirstObjectByType<Skills.CallMomSkill>();
             if (callMom != null)

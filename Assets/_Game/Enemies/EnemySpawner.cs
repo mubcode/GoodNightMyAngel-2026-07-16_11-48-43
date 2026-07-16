@@ -120,12 +120,21 @@ namespace GoodNightMyAngel.Enemies
                 yield break;
             }
 
-            // Başlangıç gecikmesi
-            if (randomInitialDelay > 0f)
-                yield return new WaitForSeconds(Random.Range(0f, randomInitialDelay));
+            // Başlangıç gecikmesi (PAUSE-aware)
+            float initial = Random.Range(0f, randomInitialDelay);
+            float waited = 0f;
+            while (waited < initial)
+            {
+                while (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused) yield return null;
+                waited += Time.deltaTime;
+                yield return null;
+            }
 
             for (int i = 0; i < count; i++)
             {
+                // Pause sırasında bekle
+                while (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused) yield return null;
+
                 Transform sp = spawnPoints[Random.Range(0, spawnPoints.Length)];
                 if (sp == null) continue;
 
@@ -139,7 +148,6 @@ namespace GoodNightMyAngel.Enemies
                 }
 
                 enemy.healthMultiplier = hpMul;
-                // GameManager'dan yatak/oyuncu hedefi ata
                 if (GameManager.Instance != null)
                 {
                     if (enemy.targetBed == null)
@@ -148,16 +156,19 @@ namespace GoodNightMyAngel.Enemies
 
                 _aliveEnemies.Add(enemy);
                 AliveCount = _aliveEnemies.Count;
-                // Ölünce listeden çıkar
-                var capturedEnemy = enemy;
-                // TakeDamage çağrıldığında zaten Die() -> OnEnemyDied tetiklenir,
-                // bu yüzden burada ekstra bir şey yapmamıza gerek yok.
 
                 if (DebugOverlay.Instance != null)
                     DebugOverlay.Instance.Log(LogCategory.Enemy,
                         $"Spawn: {enemy.name} @ {sp.name} (HP x{hpMul:F2})", false);
 
-                yield return new WaitForSeconds(spawnInterval);
+                // Spawn aralığı (PAUSE-aware)
+                float t = 0f;
+                while (t < spawnInterval)
+                {
+                    while (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused) yield return null;
+                    t += Time.deltaTime;
+                    yield return null;
+                }
             }
         }
 
