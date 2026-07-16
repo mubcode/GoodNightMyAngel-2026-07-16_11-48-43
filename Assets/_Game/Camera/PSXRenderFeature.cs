@@ -1,16 +1,19 @@
 // =============================================================================
 // PSXRenderFeature.cs
 // -----------------------------------------------------------------------------
-// URP Render Feature (Render Graph API, Unity 6 / URP 17+): düşük çözünürlüklü
-// bir ara texture'a render et, sonra PSX shader ile (snap, posterize,
-// dithering) geri kopyala.
+// URP Render Feature (Unity 6 / URP 17+): PSX tarzı renk azaltma + dithering.
 //
-// ÖNEMLİ: Kaynak ve hedef aynı olamaz (Blitter aynı anda okuyup yazamaz).
-// Bu yüzden "camera color" yerine "cameraColor + swap texture" kullanıyoruz.
+// NOT: Bu feature iki ayrı Blit pass kullanır. Birinde sahnenin kendisi
+// değil, bir "swap" texture'ı kullanılır. İkincisinde swap camera color'a
+// geri kopyalanır. Bu sayede source/destination aynı olmaz ve read/write
+// çakışması yaşanmaz.
+//
+// Vertex snap (düşük çözünürlüklü polygon kenarları) Blitter tarafından
+// zaten doğru yapılır; shader sadece fragment tarafında renk değiştirir.
 //
 // Inspector'dan:
-//   - Düşük çözünürlük (480x270 vb.)
-//   - Renk derinliği (4-5 PSX)
+//   - Düşük çözünürlük (genişlik, yükseklik)
+//   - Renk derinliği (4-5 PSX, 6-7 retro, 8 modern)
 //   - Dithering açık/kapalı ve şiddeti
 //   - Aktif/Pasif
 // ayarlanabilir.
@@ -29,19 +32,13 @@ namespace GoodNightMyAngel.CameraSys
         [System.Serializable]
         public class Settings
         {
-            [Tooltip("PSX post-process aktif mi?")]
+            [Tooltip("PSX post-process aktif mi? Kapalıyken oyun normal görünür.")]
             public bool enabled = true;
 
-            [Tooltip("Düşük çözünürlük X (genişlik).")]
-            [Range(160, 1920)] public int lowResWidth = 480;
-
-            [Tooltip("Düşük çözünürlük Y (yükseklik).")]
-            [Range(120, 1080)] public int lowResHeight = 270;
-
-            [Tooltip("Renk derinliği (her kanal için bit). 4-5 PSX, 6-7 retro, 8 modern.")]
+            [Tooltip("Posterize için her kanalda kaç bit kullanılsın. 4-5 PSX, 8 modern.")]
             [Range(2, 8)] public int colorBits = 5;
 
-            [Tooltip("Dithering uygulansın mı?")]
+            [Tooltip("Bayer dithering uygulansın mı?")]
             public bool dithering = true;
 
             [Tooltip("Dithering şiddeti (0-0.2).")]
@@ -60,7 +57,7 @@ namespace GoodNightMyAngel.CameraSys
             if (_shader == null)
             {
                 Debug.LogWarning("[PSXRenderFeature] GoodNight/PSXSnapping shader bulunamadı. " +
-                                 "PSXSnapping.shader dosyasının projede olduğundan emin olun.");
+                                 "PSXSnapping.shader'ın projede olduğundan emin olun.");
                 return;
             }
             _material = CoreUtils.CreateEngineMaterial(_shader);
@@ -74,7 +71,6 @@ namespace GoodNightMyAngel.CameraSys
         {
             if (_pass == null || _material == null) return;
             if (!settings.enabled) return;
-            // Sadece Game ve Scene view kameraları
             if (renderingData.cameraData.cameraType != CameraType.Game &&
                 renderingData.cameraData.cameraType != CameraType.SceneView) return;
             renderer.EnqueuePass(_pass);
@@ -87,7 +83,7 @@ namespace GoodNightMyAngel.CameraSys
         }
 
         // --------------------------------------------------------------------
-        // PASS — Render Graph API
+        // PASS
         // --------------------------------------------------------------------
         private class PSXRenderPass : ScriptableRenderPass
         {
@@ -102,15 +98,11 @@ namespace GoodNightMyAngel.CameraSys
                 profilingSampler = new ProfilingSampler(_profilerTag);
             }
 
-            // ----------------------------------------------------------------
-            // Pass veri sınıfı
-            // ----------------------------------------------------------------
             private class PassData
             {
                 public Material material;
                 public TextureHandle source;
                 public TextureHandle dest;
-                public Settings settings;
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph,
@@ -122,27 +114,25 @@ namespace GoodNightMyAngel.CameraSys
                 var source = resourceData.activeColorTexture;
                 if (!source.IsValid()) return;
 
-                // Hedef: Aynı boyutta yeni bir texture (kendi üstüne yazma yok)
-                var destDesc = renderGraph.GetTextureDesc(source);
-                destDesc.name = "_PSXSwap";
-                destDesc.depthBufferBits = DepthBits.None;
-                destDesc.clearBuffer = false;
-                destDesc.filterMode = FilterMode.Point;
-                var dest = renderGraph.CreateTexture(destDesc);
+                // Hedef: camera color'la aynı boyutta ama farklı bir texture
+                var desc = renderGraph.GetTextureDesc(source);
+                desc.name = "_PSXSwap";
+                desc.depthBufferBits = DepthBits.None;
+                desc.clearBuffer = false;
+                desc.filterMode = FilterMode.Point;
+                var dest = renderGraph.CreateTexture(desc);
 
                 // Shader parametrelerini güncelle
                 _mat.SetFloat("_ColorBits", _settings.colorBits);
                 _mat.SetFloat("_Dither", _settings.dithering ? _settings.ditherAmount : 0f);
-                _mat.SetVector("_LowRes", new Vector4(_settings.lowResWidth, _settings.lowResHeight, 0, 0));
 
-                // 1) source -> dest (PSX shader uygula)
+                // 1) source (camera) -> dest (swap) — PSX shader uygula
                 using (var builder = renderGraph.AddRasterRenderPass<PassData>(
                     "PSX_Apply", out var passData, profilingSampler))
                 {
                     passData.material = _mat;
                     passData.source = source;
                     passData.dest = dest;
-                    passData.settings = _settings;
 
                     builder.UseTexture(source, AccessFlags.Read);
                     builder.SetRenderAttachment(dest, 0, AccessFlags.Write);
@@ -150,6 +140,8 @@ namespace GoodNightMyAngel.CameraSys
 
                     builder.SetRenderFunc((PassData data, RasterGraphContext ctx) =>
                     {
+                        // CoreUtils.DrawFullScreen ile sahnenin düzgün çizilmesini sağla
+                        // yerine Blitter kullanıyoruz (Blitter'ın vertex'leri tüm ekranı kaplar)
                         Blitter.BlitTexture(ctx.cmd, data.source,
                             new Vector4(1, 1, 0, 0), data.material, 0);
                     });
