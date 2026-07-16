@@ -16,6 +16,7 @@ using System;
 using System.Collections;
 using UnityEngine;
 using GoodNightMyAngel.Enemies;
+using GoodNightMyAngel.InputBridge;
 
 namespace GoodNightMyAngel.Core
 {
@@ -163,6 +164,12 @@ namespace GoodNightMyAngel.Core
                 return;
             }
             Instance = this;
+            // DontDestroyOnLoad sadece root GameObject'lerde çalışır. Eğer bu
+            // obje bir parent'ın altındaysa, parent'ı koparıp root yap.
+            if (transform.parent != null)
+            {
+                transform.SetParent(null, true);
+            }
             DontDestroyOnLoad(gameObject);
 
             CurrentDay = Mathf.Max(1, startDay);
@@ -190,7 +197,7 @@ namespace GoodNightMyAngel.Core
         private void Update()
         {
             // ESC veya P ile duraklatma
-            if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P))
+            if (LegacyInputBridge.GetKeyDown(KeyCode.Escape) || LegacyInputBridge.GetKeyDown(KeyCode.P))
             {
                 TogglePause();
             }

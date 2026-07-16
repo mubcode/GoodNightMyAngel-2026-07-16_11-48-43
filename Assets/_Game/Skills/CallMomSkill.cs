@@ -22,6 +22,7 @@ using System.Collections;
 using UnityEngine;
 using GoodNightMyAngel.Core;
 using GoodNightMyAngel.Enemies;
+using GoodNightMyAngel.InputBridge;
 
 namespace GoodNightMyAngel.Skills
 {
@@ -125,7 +126,7 @@ namespace GoodNightMyAngel.Skills
         private void Update()
         {
             // Q tuşu ile tetikle (Inspector'dan tuşu değiştirebilirsin)
-            if (Input.GetKeyDown(KeyCode.Q))
+            if (LegacyInputBridge.GetKeyDown(KeyCode.Q))
             {
                 TryUse();
             }

@@ -18,6 +18,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using GoodNightMyAngel.Core;
+using GoodNightMyAngel.InputBridge;
 
 namespace GoodNightMyAngel.DebugTools
 {
@@ -41,7 +42,7 @@ namespace GoodNightMyAngel.DebugTools
         private void Update()
         {
             if (!enabledConsole) return;
-            if (Input.GetKeyDown(toggleKey)) _open = !_open;
+            if (LegacyInputBridge.GetKeyDown(toggleKey)) _open = !_open;
             if (!_open) return;
         }
 

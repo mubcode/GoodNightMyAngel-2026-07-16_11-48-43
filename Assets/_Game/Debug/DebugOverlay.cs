@@ -19,6 +19,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using GoodNightMyAngel.InputBridge;
 
 namespace GoodNightMyAngel.Core
 {
@@ -134,6 +135,14 @@ namespace GoodNightMyAngel.Core
                 return;
             }
             Instance = this;
+            // DontDestroyOnLoad sadece root GameObject'lerde çalışır. Eğer bu
+            // obje bir parent'ın altındaysa, parent'ı koparıp root yap ki
+            // DontDestroyOnLoad çalışsın.
+            if (transform.parent != null)
+            {
+                Debug.LogWarning("[DebugOverlay] Parent tespit edildi, koparılıyor (DontDestroyOnLoad için).");
+                transform.SetParent(null, true);
+            }
             DontDestroyOnLoad(gameObject);
 
             // Eğer Inspector'da kategori listesi boşsa, tüm kategoriler için
@@ -158,21 +167,21 @@ namespace GoodNightMyAngel.Core
             if (!debugEnabled || !enableHotkeys) return;
 
             // F1 -> HUD aç/kapa
-            if (Input.GetKeyDown(KeyCode.F1))
+            if (LegacyInputBridge.GetKeyDown(KeyCode.F1))
             {
                 showOnScreenHud = !showOnScreenHud;
                 Log(LogCategory.System, $"On-screen HUD: {(showOnScreenHud ? "AÇIK" : "KAPALI")}", false);
             }
 
             // F2 -> Tüm logları aç/kapa
-            if (Input.GetKeyDown(KeyCode.F2))
+            if (LegacyInputBridge.GetKeyDown(KeyCode.F2))
             {
                 debugEnabled = !debugEnabled;
                 Log(LogCategory.System, $"Debug sistemi: {(debugEnabled ? "AÇIK" : "KAPALI")}", false);
             }
 
             // F3 -> Gündüz/gece arası geçiş (hızlı test)
-            if (Input.GetKeyDown(KeyCode.F3))
+            if (LegacyInputBridge.GetKeyDown(KeyCode.F3))
             {
                 if (GameManager.Instance != null)
                 {

@@ -21,6 +21,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using GoodNightMyAngel.Core;
+using GoodNightMyAngel.InputBridge;
 
 namespace GoodNightMyAngel.Build
 {
@@ -148,7 +149,7 @@ namespace GoodNightMyAngel.Build
             // Kısayol tuşları: 1..9 ile katalog seç
             for (int i = 0; i < 9; i++)
             {
-                if (Input.GetKeyDown(KeyCode.Alpha1 + i) && i < catalog.Count)
+                if (LegacyInputBridge.GetKeyDown(KeyCode.Alpha1 + i) && i < catalog.Count)
                 {
                     _selectedIndex = i;
                     if (DebugOverlay.Instance != null)
@@ -161,19 +162,19 @@ namespace GoodNightMyAngel.Build
             UpdateHoverCell();
 
             // Sol tık -> yerleştir
-            if (_hoverCell.HasValue && Input.GetKeyDown(placeKey))
+            if (_hoverCell.HasValue && LegacyInputBridge.GetKeyDown(placeKey))
             {
                 TryPlaceAt(_hoverCell.Value);
             }
 
             // Sağ tık -> seç / tamir / kaldır
-            if (Input.GetKeyDown(interactKey))
+            if (LegacyInputBridge.GetKeyDown(interactKey))
             {
                 TryInteractAt(_hoverCell);
             }
 
             // R tuşu: seçili eşyayı tamir et
-            if (Input.GetKeyDown(KeyCode.R) && _selectedItem != null)
+            if (LegacyInputBridge.GetKeyDown(KeyCode.R) && _selectedItem != null)
             {
                 TryRepair(_selectedItem);
             }
@@ -208,7 +209,7 @@ namespace GoodNightMyAngel.Build
             if (_cam == null) _cam = Camera.main;
             if (_cam == null) { _hoverCell = null; return; }
 
-            Ray ray = _cam.ScreenPointToRay(Input.mousePosition);
+            Ray ray = _cam.ScreenPointToRay(LegacyInputBridge.mousePosition);
             // Yatay düzlem (XZ) ile kesişim noktasını bul. Y=0 düzlem.
             Plane ground = new Plane(Vector3.up, GridOrigin);
             if (ground.Raycast(ray, out float enter))

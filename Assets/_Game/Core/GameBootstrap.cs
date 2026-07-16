@@ -15,6 +15,7 @@
 
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using GoodNightMyAngel.Core;
 
 namespace GoodNightMyAngel.Core
@@ -41,10 +42,12 @@ namespace GoodNightMyAngel.Core
             if (!createEssentials) return;
 
             // DebugOverlay yoksa oluştur
+            // ÖNEMLİ: DontDestroyOnLoad sadece root GameObject'lerde çalışır,
+            // bu yüzden bu objeleri __Bootstrap'a child yapmıyoruz; sahne
+            // kökünde bağımsız olarak oluşturuluyorlar.
             if (debugOverlay == null)
             {
                 var go = new GameObject("DebugOverlay");
-                go.transform.SetParent(transform);
                 debugOverlay = go.AddComponent<DebugOverlay>();
             }
 
@@ -52,17 +55,18 @@ namespace GoodNightMyAngel.Core
             if (gameManager == null)
             {
                 var go = new GameObject("GameManager");
-                go.transform.SetParent(transform);
                 gameManager = go.AddComponent<GameManager>();
             }
 
-            // EventSystem (UI için)
+            // EventSystem (UI için) — Input System paketiyle uyumlu
             if (FindObjectOfType<EventSystem>() == null)
             {
                 var es = new GameObject("EventSystem");
-                es.transform.SetParent(transform);
                 es.AddComponent<EventSystem>();
-                es.AddComponent<StandaloneInputModule>();
+                // StandaloneInputModule eski Input API'sini kullanır ve
+                // yeni Input System modunda hata verir. Onun yerine
+                // InputSystemUIInputModule kullanıyoruz.
+                es.AddComponent<InputSystemUIInputModule>();
             }
         }
 
