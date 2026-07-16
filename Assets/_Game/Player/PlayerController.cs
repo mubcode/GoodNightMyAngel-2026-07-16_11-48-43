@@ -77,6 +77,11 @@ namespace GoodNightMyAngel.Player
         [Tooltip("R tuşu reload tetikler (Weapon üzerinden).")]
         public KeyCode reloadKey = KeyCode.R;
 
+        [Header("Input")]
+        [Tooltip("Yeni Input System için InputActionAsset. " +
+                 "Boşsa otomatik olarak Assets/InputSystem_Actions yüklenir.")]
+        public InputActionAsset inputActions;
+
         // -------------------------------------------------------------------------
         // INSPECTOR — MOUSE / CROSSHAIR
         // -------------------------------------------------------------------------
