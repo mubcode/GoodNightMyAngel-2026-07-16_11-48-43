@@ -1,12 +1,12 @@
 // =============================================================================
-// PSXSnapping.shader (URP)
+// PSXSnapping.shader (URP, Render Graph uyumlu)
 // -----------------------------------------------------------------------------
-// PSX tarzı render: düşük çözünürlüklü RT'yi al, vertex snap (UV quantization),
-// renk derinliği azalt ve ordered dithering uygula. Sonra ekrana bas.
+// PSX tarzı fragment shader: vertex snap (UV quantization) + renk derinliği
+// azaltma (posterize) + ordered dithering.
 //
-// Bu shader Blitter.BlitCameraTexture ile çağrılır:
-//   - Source: low-res RT
-//   - Destination: ekran
+// Blitter.BlitTexture ile çağrılır:
+//   - _MainTex (veya _BlitTexture): camera color
+//   - Destination: low-res RT veya swap texture
 // =============================================================================
 
 Shader "GoodNight/PSXSnapping"
@@ -15,7 +15,7 @@ Shader "GoodNight/PSXSnapping"
     {
         _MainTex ("Source", 2D) = "white" {}
         _ColorBits ("Color Bits Per Channel", Float) = 5
-        _Dither ("Dither Amount", Range(0,0.5)) = 0.06
+        _Dither ("Dither Amount", Range(0,0.2)) = 0.06
         _LowRes ("Low Res (w,h)", Vector) = (480, 270, 0, 0)
     }
 
@@ -32,14 +32,14 @@ Shader "GoodNight/PSXSnapping"
             #pragma vertex Vert
             #pragma fragment Frag
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
-            TEXTURE2D_X(_MainTex);
-            SAMPLER(sampler_MainTex);
+            // Blitter global texture ve sampler
+            TEXTURE2D_X(_BlitTexture);
+            SAMPLER(sampler_PointClamp);
 
             float _ColorBits;
             float _Dither;
-            float2 _LowRes;
+            float4 _LowRes;
 
             struct Attributes
             {
@@ -54,9 +54,8 @@ Shader "GoodNight/PSXSnapping"
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
-            // Blitter tarafından sağlanan tam ekran quad köşeleri
-            static const float2 kVertices[4] =
-            {
+            // Fullscreen quad için köşe pozisyonları (Blitter uyumlu)
+            static const float2 kVertices[4] = {
                 float2(-1, -1),
                 float2( 1, -1),
                 float2(-1,  1),
@@ -65,22 +64,31 @@ Shader "GoodNight/PSXSnapping"
 
             Varyings Vert(Attributes input)
             {
-                Varyings o;
+                Varyings o = (Varyings)0;
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
 
-                // Vertex snap: UV'yi low-res'e snap et (her köşe bir piksele oturur)
-                float2 pos = kVertices[input.vertexID];
+                // Fullscreen quad: 4 köşe
+                float2 pos = kVertices[input.vertexID % 4];
                 float2 uv = (pos + 1.0) * 0.5;
-                uv = floor(uv * _LowRes) / _LowRes;
+                #if UNITY_UV_STARTS_AT_TOP
+                uv.y = 1.0 - uv.y;
+                #endif
+
+                // Vertex snap: UV'yi low-res piksel grid'ine snap et
+                uv = floor(uv * _LowRes.xy) / _LowRes.xy;
+                // Snap sonrası pozisyonu da güncelle (vertex snap)
                 pos = uv * 2.0 - 1.0;
+                #if UNITY_UV_STARTS_AT_TOP
+                pos.y = -pos.y;
+                #endif
 
                 o.positionCS = float4(pos, 0, 1);
                 o.uv = uv;
                 return o;
             }
 
-            // 4x4 ordered dithering matrisini (Bayer) oluştur
+            // 4x4 Bayer dithering matrisi
             static const float ditherTable[16] = {
                  0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
                 12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
@@ -95,18 +103,19 @@ Shader "GoodNight/PSXSnapping"
                 return ditherTable[y * 4 + x];
             }
 
-            float4 Frag(Varyings i) : SV_Target
+            half4 Frag(Varyings i) : SV_Target
             {
-                float2 uv = i.uv;
-                // Piksel koordinatı (dithering için)
-                int2 px = int2(uv * _LowRes);
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
-                // Düşük çözünürlükten sample (point filtering)
-                float4 col = SAMPLE_TEXTURE2D_X(_MainTex, sampler_MainTex, uv);
+                float2 uv = i.uv;
+                int2 px = int2(uv * _LowRes.xy);
+
+                // Snap edilmiş UV'den sample (point filtering)
+                half4 col = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_PointClamp, uv);
 
                 // 1) Renk derinliği azalt (posterize)
                 float levels = pow(2.0, _ColorBits);
-                // Dithering ekle (ordered Bayer)
+                // 2) Bayer dithering
                 float d = bayer4x4(px) - 0.5;
                 col.rgb = floor(col.rgb * levels + d * _Dither * levels) / levels;
                 col.rgb = saturate(col.rgb);
@@ -116,5 +125,5 @@ Shader "GoodNight/PSXSnapping"
             ENDHLSL
         }
     }
-    Fallback "Hidden/Universal Render Pipeline/FallbackError"
+    Fallback Off
 }
