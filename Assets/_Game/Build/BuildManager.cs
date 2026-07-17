@@ -130,7 +130,7 @@ namespace GoodNightMyAngel.Build
         private void Start()
         {
             BuildKeepOut();
-            // Yol çizimi sadece PathManager üzerinden
+            DrawEnemyPath();
             UpdateHud();
             if (DebugOverlay.Instance != null)
                 DebugOverlay.Instance.Log(LogCategory.Build,

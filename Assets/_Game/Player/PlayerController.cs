@@ -39,22 +39,22 @@ namespace GoodNightMyAngel.Player
         // -------------------------------------------------------------------------
         [Header("Hareket")]
         [Tooltip("Normal yürüme hızı (birim/saniye).")]
-        [Min(0f)] public float moveSpeed = 8f;
+        [Min(0f)] public float moveSpeed = 7f;
 
         [Tooltip("Sprint (koşma) hızı çarpanı.")]
         [Min(1f)] public float sprintMultiplier = 1.6f;
 
         [Tooltip("Maksimum yatay hız (top speed). Bunny hop sırasında bu sınırı aşamaz.")]
-        [Min(1f)] public float maxMoveSpeed = 9f;
+        [Min(1f)] public float maxMoveSpeed = 8f;
 
         [Tooltip("Sprint ile birlikte max hız (sprintMaxSpeed, maxMoveSpeed'den büyük olabilir).")]
-        [Min(1f)] public float sprintMaxSpeed = 14f;
+        [Min(1f)] public float sprintMaxSpeed = 12f;
 
         [Tooltip("Yerçekimi (birim/saniye²).")]
         public float gravity = 20f;
 
-        [Tooltip("Yer friction. Sadece INPUT yokken uygulanır (Quake stili). Yüksek = hızlı durma.")]
-        [Range(0f, 15f)] public float groundFriction = 6f;
+        [Tooltip("Yer friction (saniyede hız kaybı çarpanı). 0 = sürtünme yok, 10 = hızlı durma.")]
+        [Range(0f, 15f)] public float groundFriction = 8f;
 
         [Tooltip("Havadayken ivmelenme (air accelerate). Quake stili. 0 = havada kontrol yok, 30 = çok hassas.")]
         [Range(0f, 50f)] public float airAccelerate = 12f;
@@ -320,17 +320,13 @@ namespace GoodNightMyAngel.Player
 
             if (grounded)
             {
-                // Quake stili: input varsa friction uygulanmaz,
-                // sadece hedef yöne doğru accelerate edilir
+                // Yerde: friction uygula
+                ApplyFriction();
+                // Yatay hızı hedef yöne doğru ekle (anında ivmelenme)
                 if (wishDir.sqrMagnitude > 0.01f)
                 {
                     float maxSpeed = GetMaxSpeed();
                     Accelerate(wishDir, maxSpeed, 10f);   // yerde yüksek accel
-                }
-                else
-                {
-                    // Input yoksa: friction uygula (durmayı sağlar)
-                    ApplyFriction();
                 }
                 // Yere değince yatay hızı sınırla
                 ClampSpeed(GetMaxSpeed());
