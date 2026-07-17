@@ -64,12 +64,6 @@ namespace GoodNightMyAngel.Build
         [Header("Ekonomi")]
         [Min(0)] public int startingCurrency = 100;
 
-        [Header("Yol Göstergesi")]
-        public LineRenderer pathLine;
-        public Color pathColor = new Color(1f, 0.3f, 0.3f, 0.85f);
-        [Min(0.01f)] public float pathWidth = 0.12f;
-        [Min(0f)] public float pathHeight = 0.08f;
-
         [Header("Hover / Yerleştirme Önizleme")]
         public Color canPlaceColor = new Color(0.3f, 1f, 0.3f, 0.45f);
         public Color cannotPlaceColor = new Color(1f, 0.3f, 0.3f, 0.45f);
@@ -130,7 +124,6 @@ namespace GoodNightMyAngel.Build
         private void Start()
         {
             BuildKeepOut();
-            DrawEnemyPath();
             UpdateHud();
             if (DebugOverlay.Instance != null)
                 DebugOverlay.Instance.Log(LogCategory.Build,
@@ -549,52 +542,10 @@ namespace GoodNightMyAngel.Build
         }
 
         // -------------------------------------------------------------------------
-        // YOL GÖSTERGESİ
+        // YOL GÖSTERGESİ KALDIRILDI
         // -------------------------------------------------------------------------
-        private void DrawEnemyPath()
-        {
-            if (GameManager.Instance == null) return;
-            var gmsp = GameManager.Instance.enemySpawnPoints;
-            Vector3 bedPos = GameManager.Instance.bed != null
-                ? GameManager.Instance.bed.transform.position
-                : GridOrigin;
-            if (gmsp == null || gmsp.Length == 0) return;
-
-            // Mevcut eski line'ları temizle
-            var existing = GameObject.Find("__BuildPathLines");
-            if (existing != null) Destroy(existing);
-            var root = new GameObject("__BuildPathLines");
-            root.transform.SetParent(transform);
-
-            for (int s = 0; s < gmsp.Length; s++)
-            {
-                var sp = gmsp[s];
-                if (sp == null) continue;
-
-                var go = new GameObject($"EnemyPath_{s}");
-                go.transform.SetParent(root.transform);
-                var lr = go.AddComponent<LineRenderer>();
-                lr.material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-                lr.material.color = pathColor;
-                lr.startColor = pathColor;
-                lr.endColor = pathColor;
-                lr.startWidth = pathWidth;
-                lr.endWidth = pathWidth * 1.5f;
-                lr.positionCount = 2;
-                lr.useWorldSpace = true;
-
-                Vector3 a = sp.position;
-                Vector3 b = bedPos;
-                a.y = pathHeight;
-                b.y = pathHeight;
-                lr.SetPosition(0, a);
-                lr.SetPosition(1, b);
-                lr.numCapVertices = 4;
-            }
-
-            var first = root.transform.Find("EnemyPath_0");
-            if (first != null) pathLine = first.GetComponent<LineRenderer>();
-        }
+        // Yol çizimi sadece PathManager tarafından yapılır. Burada
+        // kırmızı çizgi / __BuildPathLines oluşturulmaz.
 
         // -------------------------------------------------------------------------
         // HUD

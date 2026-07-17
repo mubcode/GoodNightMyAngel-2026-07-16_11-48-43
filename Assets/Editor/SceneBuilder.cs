@@ -82,6 +82,9 @@ namespace GoodNightMyAngel.EditorTools
         [MenuItem("GoodNight/2) Build Demo Scene")]
         public static void BuildDemoScene()
         {
+            // ÖNCE SAHNEDEKİ ESKİ OBJELERİ TEMİZLE
+            ClearPreviousBuild();
+
             // Tag'ler hazır mı kontrol et
             if (!AreAllTagsPresent())
             {
@@ -382,6 +385,58 @@ namespace GoodNightMyAngel.EditorTools
         // --------------------------------------------------------------------
         // YARDIMCI METODLAR
         // --------------------------------------------------------------------
+
+        /// <summary>
+        /// Önceki kurulumdan kalan tüm objeleri sahneden siler.
+        /// Bu sahneyi temiz bir başlangıç durumuna getirir.
+        /// </summary>
+        private static void ClearPreviousBuild()
+        {
+            // Silinecek obje isimleri (sahne kurulumunda oluşturduklarımız)
+            string[] toDelete = new string[]
+            {
+                "__Bootstrap",
+                "Ground",
+                "Bed",
+                "Player",
+                "Main Camera",
+                "Sun",
+                "EnemySpawnPoints",
+                "BuildManager",
+                "EnemySpawner",
+                "GameManager",
+                "GameHud",
+                "DebugConsole",
+                "PathManager",
+                "Minimap",
+                "ControlsPanel",
+                "PausePanel",
+                "__BuildPathLines",
+                "PathStart_0", "PathStart_1", "PathStart_2", "PathStart_3", "PathStart_4",
+                "PathStart_Auto_0", "PathStart_Auto_1", "PathStart_Auto_2", "PathStart_Auto_3", "PathStart_Auto_4",
+                "PathMid_0", "PathMid_1", "PathMid_2", "PathMid_3", "PathMid_4",
+            };
+
+            foreach (var name in toDelete)
+            {
+                var found = GameObject.Find(name);
+                if (found != null) Object.DestroyImmediate(found);
+            }
+
+            // Waypoint'ler (PathWaypoint component'i olan tüm objeler)
+            var wps = Object.FindObjectsByType<PathWaypoint>(FindObjectsSortMode.None);
+            foreach (var wp in wps) if (wp != null) Object.DestroyImmediate(wp.gameObject);
+
+            // PathLine'lar (PathManager ve BuildManager altındaki)
+            foreach (var plName in new[] { "PathLine_0", "PathLine_1", "PathLine_2", "PathLine_3", "PathLine_4" })
+            {
+                var found = GameObject.Find(plName);
+                if (found != null) Object.DestroyImmediate(found);
+            }
+
+            Debug.Log("[SceneBuilder] Eski sahne objeleri temizlendi.");
+        }
+
 
         private static bool AreAllTagsPresent()
         {
