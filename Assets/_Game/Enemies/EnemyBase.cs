@@ -97,11 +97,13 @@ namespace GoodNightMyAngel.Enemies
         private float _attackTimer;
         private float _damageCooldown;
 
-        // Waypoint takibi (PathManager'dan alınır)
-        private System.Collections.Generic.List<Vector3> _currentPath;
+        // Rota takibi (PathManager'dan alınır)
+        private PathManager.RouteData _currentRoute;
         private int _pathIndex = 0;
         private float _waitTimer = 0f;
         private float _currentSpeedMul = 1f;
+        // Hangi noktadayız (referans: EnemyRoute içindeki Transform)
+        private Transform _currentPointRef;
 
         // -------------------------------------------------------------------------
         // YAŞAM DÖNGÜSÜ
@@ -133,11 +135,13 @@ namespace GoodNightMyAngel.Enemies
                 _agent.angularSpeed = turnSpeed;
             }
 
-            // Waypoint yolunu al (PathManager varsa)
+            // Rota yolunu al (PathManager varsa)
             if (PathManager.Instance != null)
             {
-                _currentPath = PathManager.Instance.GetRandomPath();
-                _pathIndex = 0;
+                _currentRoute = PathManager.Instance.GetRandomRoute();
+                _pathIndex = 1;   // 0 = spawn noktası, 1'den başla
+                _currentPointRef = _currentRoute != null && _currentRoute.points.Count > 1
+                    ? GetChildTransformAt(_pathIndex) : null;
             }
 
             // Can barı ekle
@@ -172,6 +176,9 @@ namespace GoodNightMyAngel.Enemies
             // Pause sırasında bekle (zaman azalmasın)
             if (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused) return;
 
+            // Lazy-init: PathManager Start'ı daha geç çalışmış olabilir
+            EnsureRouteAssigned();
+
             _attackTimer -= Time.deltaTime;
             _damageCooldown -= Time.deltaTime;
 
@@ -196,12 +203,29 @@ namespace GoodNightMyAngel.Enemies
         }
 
         // -------------------------------------------------------------------------
-        // YOL TAKİBİ (waypoint)
+        // YOL TAKİBİ (EnemyRoute)
+        // -------------------------------------------------------------------------
+        // Yaratık spawn noktasından başlar, sırayla Point_1, Point_2, ... gider.
+        // Yatak bedAttackRange içindeyse yolu takip etmeyi bırakır ve
+        // saldırmaya başlar. Tüm point'leri geçmesi gerekmez.
         // -------------------------------------------------------------------------
         protected virtual void FollowPath()
         {
-            // Yol yoksa eski yönteme düş (yatak hedefi)
-            if (_currentPath == null || _currentPath.Count == 0)
+            // Önce yatak/oyuncu menzilinde miyiz? (saldırı)
+            // (Bu kontrol Update'te zaten yapılıyor ama burada da tekrarlayalım)
+            if (targetBed != null)
+            {
+                float dBed = Vector3.Distance(transform.position, targetBed.transform.position);
+                if (dBed <= bedAttackRange)
+                {
+                    // Yatağa yeterince yakınız — yolu takip etmeyi bırak,
+                    // Update'teki saldırı mantığı devralacak
+                    return;
+                }
+            }
+
+            // Rota yoksa eski yönteme düş (yatak hedefi)
+            if (_currentRoute == null || _currentRoute.points.Count == 0)
             {
                 Transform moveTarget = ChooseMoveTarget();
                 if (moveTarget != null) MoveTowards(moveTarget.position);
@@ -215,9 +239,9 @@ namespace GoodNightMyAngel.Enemies
                 return;
             }
 
-            if (_pathIndex >= _currentPath.Count)
+            if (_pathIndex >= _currentRoute.points.Count)
             {
-                // Yolun sonuna geldik, yatağa saldır
+                // Yolun sonuna geldik (tüm point'ler geçildi ama yatak hâlâ uzakta)
                 if (targetBed != null)
                 {
                     float d = Vector3.Distance(transform.position, targetBed.transform.position);
@@ -226,26 +250,33 @@ namespace GoodNightMyAngel.Enemies
                 return;
             }
 
-            Vector3 waypoint = _currentPath[_pathIndex];
+            Vector3 waypoint = _currentRoute.points[_pathIndex];
             float distWp = Vector3.Distance(transform.position, waypoint);
 
             // Waypoint'e yakınız, bir sonrakine geç
             if (distWp < 0.6f)
             {
                 _pathIndex++;
-                // Bir sonraki waypoint'te bekleme var mı? (PathWaypoint'ten)
-                if (_pathIndex < _currentPath.Count)
+                // Bir sonraki point'te bekleme var mı? (EnemyRoute üzerinden)
+                if (_currentRoute.spawnPoint != null)
                 {
-                    // Şu anki pozisyona en yakın PathWaypoint'i bul ve waitTime'ı al
-                    var allWps = FindObjectsByType<PathWaypoint>(FindObjectsSortMode.None);
-                    foreach (var wp in allWps)
+                    var route = _currentRoute.spawnPoint.parent;
+                    if (route != null)
                     {
-                        if (wp == null) continue;
-                        if (Vector3.Distance(wp.transform.position, waypoint) < 0.1f)
+                        var enemyRoute = route.GetComponent<EnemyRoute>();
+                        if (enemyRoute != null)
                         {
-                            _waitTimer = wp.waitTime;
-                            _currentSpeedMul = wp.speedMultiplier;
-                            break;
+                            // Eğer şu anki point'in waypoint'i varsa, waitTime/speedMultiplier al
+                            int childIdx = _pathIndex;
+                            if (childIdx < route.childCount)
+                            {
+                                var childWp = route.GetChild(childIdx).GetComponent<PathWaypoint>();
+                                if (childWp != null)
+                                {
+                                    _waitTimer = childWp.waitTime;
+                                    _currentSpeedMul = childWp.speedMultiplier;
+                                }
+                            }
                         }
                     }
                 }
@@ -276,23 +307,49 @@ namespace GoodNightMyAngel.Enemies
             }
         }
 
+        private Transform GetChildTransformAt(int index)
+        {
+            if (_currentRoute == null || _currentRoute.spawnPoint == null) return null;
+            var parent = _currentRoute.spawnPoint.parent;
+            if (parent == null) return null;
+            if (index <= 0 || index >= parent.childCount) return null;
+            return parent.GetChild(index);
+        }
+
+        /// <summary>
+        /// Lazy-init: PathManager.Start'ı daha geç çalışmış olabilir, bu yüzden
+        /// ilk Update'te rota atamasını yapar.
+        /// </summary>
+        private void EnsureRouteAssigned()
+        {
+            if (_currentRoute != null) return;
+            if (PathManager.Instance == null) return;
+
+            _currentRoute = PathManager.Instance.GetRandomRoute();
+            if (_currentRoute != null)
+            {
+                _pathIndex = 1;   // 0 = spawn, 1'den başla
+                _currentPointRef = GetChildTransformAt(_pathIndex);
+            }
+        }
+
         /// <summary>Sonraki waypoint'in yönü (minimap için).</summary>
         public Vector3 GetNextWaypointDirection()
         {
-            if (_currentPath == null || _pathIndex >= _currentPath.Count) return Vector3.zero;
-            Vector3 d = _currentPath[_pathIndex] - transform.position;
+            if (_currentRoute == null || _pathIndex >= _currentRoute.points.Count) return Vector3.zero;
+            Vector3 d = _currentRoute.points[_pathIndex] - transform.position;
             d.y = 0;
             return d.normalized;
         }
 
         public Vector3 GetCurrentWaypoint()
         {
-            if (_currentPath == null || _pathIndex >= _currentPath.Count) return transform.position;
-            return _currentPath[_pathIndex];
+            if (_currentRoute == null || _pathIndex >= _currentRoute.points.Count) return transform.position;
+            return _currentRoute.points[_pathIndex];
         }
 
         public int GetPathIndex() => _pathIndex;
-        public int GetPathLength() => _currentPath?.Count ?? 0;
+        public int GetPathLength() => _currentRoute?.points.Count ?? 0;
 
         // -------------------------------------------------------------------------
         // HEDEF SEÇİMİ (saldırı için)

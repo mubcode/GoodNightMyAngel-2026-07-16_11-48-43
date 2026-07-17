@@ -114,9 +114,20 @@ namespace GoodNightMyAngel.Enemies
                 Debug.LogError("[EnemySpawner] normalEnemyPrefab atanmamış!");
                 yield break;
             }
-            if (spawnPoints == null || spawnPoints.Length == 0)
+
+            // Spawn noktalarını PathManager'dan veya kendi dizisinden al
+            // (PathManager varsa onun spawn noktaları tercih edilir)
+            var spawnList = new List<Transform>();
+            if (PathManager.Instance != null)
             {
-                Debug.LogError("[EnemySpawner] Hiç spawn noktası yok!");
+                var pmSpawns = PathManager.Instance.GetAllSpawnPoints();
+                if (pmSpawns.Count > 0) spawnList.AddRange(pmSpawns);
+            }
+            if (spawnList.Count == 0 && spawnPoints != null)
+                spawnList.AddRange(spawnPoints);
+            if (spawnList.Count == 0)
+            {
+                Debug.LogError("[EnemySpawner] Hiç spawn noktası yok! (PathManager veya spawnPoints dizisi boş)");
                 yield break;
             }
 
@@ -132,10 +143,9 @@ namespace GoodNightMyAngel.Enemies
 
             for (int i = 0; i < count; i++)
             {
-                // Pause sırasında bekle
                 while (GameManager.Instance != null && GameManager.Instance.Status == GameStatus.Paused) yield return null;
 
-                Transform sp = spawnPoints[Random.Range(0, spawnPoints.Length)];
+                Transform sp = spawnList[Random.Range(0, spawnList.Count)];
                 if (sp == null) continue;
 
                 GameObject go = Instantiate(normalEnemyPrefab, sp.position, sp.rotation);

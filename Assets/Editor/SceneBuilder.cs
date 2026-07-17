@@ -322,56 +322,59 @@ namespace GoodNightMyAngel.EditorTools
             dcGo.AddComponent<DebugConsole>();
 
             // -----------------------------------------------------------------
-            // 14) PathManager + örnek manuel waypoint
+            // 14) PathManager + örnek EnemyRoute
             // -----------------------------------------------------------------
-            // Kullaniciya ornek bir yol hazirliyoruz: "Waypoint_1" adinda
-            // bir parent, altinda 3 cylinder "Point_0..2" ile.
+            // Kullaniciya ornek bir rota hazirliyoruz: "Route_1" parent, altinda:
+            //   - Spawn Point (kuzey, kirmizi kure)
+            //   - Point_1, Point_2, Point_3 (cylinder sari, güzergah boyunca)
             // Kullanici bunlari surukleyerek kendi güzergahini cizebilir.
-            // PathManager.startPoints'e otomatik atanir.
+            // End Point = yatak (sahne uzerinde ayri obje).
             // -----------------------------------------------------------------
             var pathMgr = new GameObject("PathManager");
             var pm = pathMgr.AddComponent<PathManager>();
             pm.bed = bedComp;
-            pm.startPoints = new System.Collections.Generic.List<PathWaypoint>();
+            pm.routes = new System.Collections.Generic.List<EnemyRoute>();
 
-            // Örnek waypoint_1: parent (PathWaypoint component'i tasiyacak)
-            var waypoint1 = new GameObject("Waypoint_1");
-            waypoint1.transform.position = new Vector3(0, 0, 8);  // yatagin kuzeyinde
-            var wp1 = waypoint1.AddComponent<PathWaypoint>();
-            wp1.gizmoColor = new Color(0.3f, 1f, 0.5f, 0.9f);   // yesil gizmo
+            // Örnek Route_1: parent
+            var route1 = new GameObject("Route_1");
+            route1.transform.position = new Vector3(0, 0, 8);
+            var route1Comp = route1.AddComponent<EnemyRoute>();
 
-            // 3 child point (cylinder olarak olusturulur, gizli flagli)
-            // Point_0: spawn noktasi (en kuzey)
-            // Point_1: orta
-            // Point_2: yataga en yakin
+            // Spawn Point (ilk child, kuzey, kirmizi kure)
+            var spawnPt = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            spawnPt.name = "Spawn Point";
+            spawnPt.transform.SetParent(route1.transform, false);
+            spawnPt.transform.position = route1.transform.position + new Vector3(-3, 0, 12);
+            var spCol = spawnPt.GetComponent<Collider>();
+            if (spCol != null) Object.DestroyImmediate(spCol);
+            var spMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            spMat.color = new Color(1f, 0.3f, 0.3f);
+            spawnPt.GetComponent<Renderer>().sharedMaterial = spMat;
+            spawnPt.transform.localScale = Vector3.one * 0.6f;
+
+            // Point_1, Point_2, Point_3 (cylinder, sari)
             Vector3[] pointOffsets = new Vector3[]
             {
-                new Vector3(-3, 0, 10),   // Point_0 (en uzak, kuzey)
-                new Vector3(-2, 0, 5),    // Point_1 (orta)
-                new Vector3(-1, 0, 1),    // Point_2 (yataga yakin)
+                new Vector3(-2, 0, 7),   // Point_1
+                new Vector3(-1, 0, 3),   // Point_2
+                new Vector3( 0, 0, 1),   // Point_3
             };
             for (int i = 0; i < pointOffsets.Length; i++)
             {
                 var pt = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                pt.name = $"Point_{i}";
-                pt.transform.SetParent(waypoint1.transform, false);
-                pt.transform.position = waypoint1.transform.position + pointOffsets[i];
-                pt.transform.localScale = new Vector3(0.4f, 1f, 0.4f);  // ince uzun
-                // Collider kaldir (sahne fizigini etkilemesin)
+                pt.name = $"Point_{i + 1}";
+                pt.transform.SetParent(route1.transform, false);
+                pt.transform.position = route1.transform.position + pointOffsets[i];
+                pt.transform.localScale = new Vector3(0.4f, 1f, 0.4f);
                 var col = pt.GetComponent<Collider>();
                 if (col != null) Object.DestroyImmediate(col);
-                // Renk: mor/magenta (görünür olsun)
                 var ptMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                ptMat.color = new Color(0.8f, 0.2f, 0.8f);
+                ptMat.color = new Color(1f, 0.85f, 0.2f);
                 pt.GetComponent<Renderer>().sharedMaterial = ptMat;
             }
 
-            pm.startPoints.Add(wp1);
-            // Ileride Waypoint_2, Waypoint_3 de eklenebilir:
-            // 1) Bos GameObject olustur, "Waypoint_2" adini ver
-            // 2) PathWaypoint component'i ekle
-            // 3) Ic Point_X objeleri koy
-            // 4) PathManager.startPoints listesine surukle
+            pm.routes.Add(route1Comp);
+            // Daha fazla rota: Hierarchy'de Route_2 olusturup PathManager'a surukle
 
             // -----------------------------------------------------------------
             // 15) Minimap
@@ -456,6 +459,8 @@ namespace GoodNightMyAngel.EditorTools
             {
                 "PathStart_", "PathStart_Auto_", "PathMid_",
                 "EnemyPath_", "PathLine_",
+                "Route_",       // yeni sistem: Route_1, Route_2, ...
+                "Spawn Point",  // yeni sistem: spawn noktası
             };
 
             // Tüm GameObject'leri gez ve sil
@@ -494,6 +499,12 @@ namespace GoodNightMyAngel.EditorTools
                 if (!shouldDestroy && go.GetComponent<LineRenderer>() != null &&
                     go.transform.parent != null &&
                     go.transform.parent.name == "PathManager")
+                {
+                    shouldDestroy = true;
+                }
+
+                // EnemyRoute component'i olan objeler (yeni sistem)
+                if (!shouldDestroy && go.GetComponent<EnemyRoute>() != null)
                 {
                     shouldDestroy = true;
                 }

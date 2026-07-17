@@ -82,7 +82,8 @@ namespace GoodNightMyAngel.Core
         public Transform[] bossSpawnPoints;
 
         [Header("Spawn Noktaları")]
-        [Tooltip("Gece düşmanlarının spawn olacağı orman kenarı noktaları.")]
+        [Tooltip("Gece düşmanlarının spawn olacağı orman kenarı noktaları. " +
+                 "Boşsa PathManager.routes içindeki spawn point'ler kullanılır.")]
         public Transform[] enemySpawnPoints;
 
         [Tooltip("Hangi noktaların kullanılabilir olduğunu belirleyen bayrak dizisi. " +

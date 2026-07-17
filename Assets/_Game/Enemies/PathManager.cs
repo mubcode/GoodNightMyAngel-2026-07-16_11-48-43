@@ -1,16 +1,16 @@
 // =============================================================================
 // PathManager.cs
 // -----------------------------------------------------------------------------
-// Sahnedeki tüm PathWaypoint'leri yönetir. Fields Runner 2 tarzı:
-// her spawn noktası bir waypoint zincirinin başlangıcıdır; düşmanlar
-// sırayla waypoint'leri takip ederek yatağa ulaşır.
+// Yeni CS-tarzı rota sistemi: EnemyRoute kullanır.
+//
+// Her EnemyRoute bir spawn noktası + sıralı point'ler içerir. Yaratıklar
+// spawn'da doğar, point'leri takip eder, yatağa yeterince yaklaşınca saldırır.
 //
 // Inspector'dan:
 //   - Yatak referansı (yolun son hedefi)
-//   - Başlangıç waypoint'leri listesi (boşsa sahnede otomatik bulur)
+//   - Routes listesi (EnemyRoute component'i olan objeler)
 //   - Yolu çiz (devre dışı bırakılabilir)
 //   - Çizgi rengi / kalınlığı / yüksekliği
-//   - Spawn noktası -> en yakın başlangıç waypoint eşleştirmesi aktif mi
 // ayarlanabilir.
 // =============================================================================
 
@@ -22,8 +22,8 @@ using GoodNightMyAngel.World;
 namespace GoodNightMyAngel.Enemies
 {
     /// <summary>
-    /// Yaratık yolu yöneticisi. Sahne üzerindeki tüm PathWaypoint'leri
-    /// indeksler; yeni düşmanlar için yol ataması yapar.
+    /// Yaratık rota yöneticisi. Sahne üzerindeki tüm EnemyRoute'ları
+    /// indeksler; yeni düşmanlar için rota ataması yapar.
     /// </summary>
     public class PathManager : MonoBehaviour
     {
@@ -34,35 +34,36 @@ namespace GoodNightMyAngel.Enemies
         [Tooltip("Yolun son hedefi (yatak).")]
         public Bed bed;
 
-        [Header("Yol Başlangıçları")]
-        [Tooltip("Yolun başlangıç waypoint'leri. Boşsa sahnede 'PathStart' taglı objeleri arar.")]
-        public List<PathWaypoint> startPoints = new List<PathWaypoint>();
+        [Header("Rotalar")]
+        [Tooltip("Yaratıkların takip edeceği EnemyRoute'lar. Boşsa sahnede otomatik aranır.")]
+        public List<EnemyRoute> routes = new List<EnemyRoute>();
 
         [Header("Görsel")]
         [Tooltip("Tüm yolları sahnede LineRenderer ile çiz.")]
         public bool drawPaths = true;
 
-        [Tooltip("Yol çizgisi rengi (yarı transparent beyaz, klasik path göstergesi).")]
+        [Tooltip("Yol çizgisi rengi (yarı transparent beyaz).")]
         public Color pathColor = new Color(1f, 1f, 1f, 0.45f);
 
         [Tooltip("Yol çizgisi kalınlığı.")]
         [Min(0.01f)] public float pathWidth = 0.08f;
 
-        [Tooltip("Yol çizgisi yüksekliği.")]
+        [Tooltip("Yol çizgisi yüksekliği (zeminden).")]
         [Min(0f)] public float pathHeight = 0.05f;
-
-        [Header("Hedef Eşleştirme")]
-        [Tooltip("EnemySpawner'a otomatik kayıt ol.")]
-        public bool registerToSpawner = true;
 
         // -------------------------------------------------------------------------
         // DURUM
         // -------------------------------------------------------------------------
-        // Her yolun tam listesi (start + intermediate + bed)
-        private List<List<Vector3>> _paths = new List<List<Vector3>>();
+        // Her rota için: spawn noktası + path (pointler) + bed
+        public class RouteData
+        {
+            public Transform spawnPoint;
+            public List<Vector3> points = new List<Vector3>();  // bed hariç
+        }
+
+        private List<RouteData> _routes = new List<RouteData>();
         private List<LineRenderer> _pathLines = new List<LineRenderer>();
 
-        // Singleton
         public static PathManager Instance { get; private set; }
 
         // -------------------------------------------------------------------------
@@ -84,31 +85,21 @@ namespace GoodNightMyAngel.Enemies
                 bed = Object.FindFirstObjectByType<Bed>();
             }
 
-            // startPoints boşsa sahnede PathWaypoint'leri ara
-            // Sadece "yolun başlangıcı" olanları al:
-            //   - next zincirinin başı (next==null ve child yok) VEYA
-            //   - child'ları olan (kullanıcı manuel waypoint oluşturmuş)
-            if (startPoints.Count == 0)
+            // Routes boşsa sahnede EnemyRoute'ları ara
+            if (routes.Count == 0)
             {
-                var all = Object.FindObjectsByType<PathWaypoint>(FindObjectsSortMode.None);
-                foreach (var wp in all)
-                {
-                    if (wp == null) continue;
-                    bool isPathStart = wp.next == null;   // zincirin başı
-                    bool hasChildren = wp.transform.childCount > 0;   // child point'ler var
-                    if (isPathStart || hasChildren)
-                        startPoints.Add(wp);
-                }
+                var found = Object.FindObjectsByType<EnemyRoute>(FindObjectsSortMode.None);
+                routes.AddRange(found);
             }
 
-            // Eğer hâlâ hiç waypoint yoksa kullanıcıya bildir (otomatik oluşturma YOK)
-            if (startPoints.Count == 0 && DebugOverlay.Instance != null)
+            // Eğer hiç route yoksa kullanıcıya bildir
+            if (routes.Count == 0 && DebugOverlay.Instance != null)
             {
                 DebugOverlay.Instance.Log(LogCategory.Enemy,
-                    "Hiç waypoint yok. Sahneye manuel olarak 'PathWaypoint' ekleyin.", true);
+                    "Hiç EnemyRoute yok. Sahneye 'EnemyRoute' component'li obje ekleyin.", true);
             }
 
-            BuildPaths();
+            BuildRoutes();
             if (drawPaths) DrawAllPaths();
         }
 
@@ -118,29 +109,29 @@ namespace GoodNightMyAngel.Enemies
         }
 
         // -------------------------------------------------------------------------
-        // YOL İNŞASI
+        // ROTA İNŞASI
         // -------------------------------------------------------------------------
-        // Her startPoints içindeki PathWaypoint için:
-        //   - Eğer 'next' zinciri varsa, onu takip et
-        //   - Yoksa child'ları sırayla ekle (siblings order)
-        // Son olarak yatak pozisyonu eklenir.
-        // -------------------------------------------------------------------------
-        private void BuildPaths()
+        private void BuildRoutes()
         {
-            _paths.Clear();
-            foreach (var start in startPoints)
+            _routes.Clear();
+            foreach (var route in routes)
             {
-                if (start == null) continue;
-                // YENİ: GetPathPoints() child'ları da dahil eder
-                var path = start.GetPathPoints();
-                if (bed != null) path.Add(bed.transform.position);
-                if (path.Count >= 2) _paths.Add(path);
-            }
-
-            if (DebugOverlay.Instance != null)
-            {
-                DebugOverlay.Instance.Log(LogCategory.Enemy,
-                    $"Toplam {_paths.Count} yol, {startPoints.Count} waypoint'ten oluşturuldu.", false);
+                if (route == null) continue;
+                var data = new RouteData();
+                data.spawnPoint = route.SpawnPoint;
+                if (data.spawnPoint == null)
+                {
+                    if (DebugOverlay.Instance != null)
+                        DebugOverlay.Instance.Log(LogCategory.Enemy,
+                            $"Route '{route.name}': spawn point yok (child gerekli).", true);
+                    continue;
+                }
+                // Spawn noktası + tüm point'ler (sırayla)
+                data.points.Add(data.spawnPoint.position);
+                foreach (var p in route.PathPoints) data.points.Add(p.position);
+                // Yatak ekleme — yatak ayrı bir obje, yaratıklar saldırmak için
+                // bedAttackRange içine girmeli. Yolu bitirmeleri gerekmiyor.
+                _routes.Add(data);
             }
         }
 
@@ -149,14 +140,13 @@ namespace GoodNightMyAngel.Enemies
         // -------------------------------------------------------------------------
         private void DrawAllPaths()
         {
-            // Eski line'ları temizle
             foreach (var ln in _pathLines) if (ln != null) Destroy(ln.gameObject);
             _pathLines.Clear();
 
-            for (int i = 0; i < _paths.Count; i++)
+            for (int i = 0; i < _routes.Count; i++)
             {
-                var path = _paths[i];
-                if (path.Count < 2) continue;
+                var data = _routes[i];
+                if (data.points.Count < 2) continue;
 
                 var go = new GameObject($"PathLine_{i}");
                 go.transform.SetParent(transform);
@@ -166,14 +156,14 @@ namespace GoodNightMyAngel.Enemies
                 lr.startColor = pathColor;
                 lr.endColor = pathColor;
                 lr.startWidth = pathWidth;
-                lr.endWidth = pathWidth * 1.5f;
-                lr.positionCount = path.Count;
+                lr.endWidth = pathWidth;
+                lr.positionCount = data.points.Count;
                 lr.useWorldSpace = true;
                 lr.numCapVertices = 4;
 
-                for (int p = 0; p < path.Count; p++)
+                for (int p = 0; p < data.points.Count; p++)
                 {
-                    Vector3 v = path[p];
+                    Vector3 v = data.points[p];
                     v.y = pathHeight;
                     lr.SetPosition(p, v);
                 }
@@ -185,37 +175,31 @@ namespace GoodNightMyAngel.Enemies
         // PUBLIC API
         // -------------------------------------------------------------------------
 
-        /// <summary>
-        /// Verilen bir düşmana waypoint yol listesini kopyalar. Düşman Update'inde
-        /// bu listeyi sırayla takip eder.
-        /// </summary>
-        public List<Vector3> GetRandomPath()
+        /// <summary>Rastgele bir rota döndürür (spawn + points).</summary>
+        public RouteData GetRandomRoute()
         {
-            if (_paths.Count == 0) return null;
-            return new List<Vector3>(_paths[Random.Range(0, _paths.Count)]);
+            if (_routes.Count == 0) return null;
+            return _routes[Random.Range(0, _routes.Count)];
         }
 
-        /// <summary>Belirli bir indeksteki yolu döndürür.</summary>
-        public List<Vector3> GetPath(int index)
+        /// <summary>Belirli bir indeksteki rota.</summary>
+        public RouteData GetRoute(int index)
         {
-            if (index < 0 || index >= _paths.Count) return null;
-            return new List<Vector3>(_paths[index]);
+            if (index < 0 || index >= _routes.Count) return null;
+            return _routes[index];
         }
 
-        public int PathCount => _paths.Count;
+        public int RouteCount => _routes.Count;
 
-        /// <summary>En yakın başlangıç waypoint'in indeksini bul.</summary>
-        public int GetClosestPathIndex(Vector3 worldPos)
+        /// <summary>Sahnedeki toplam spawn noktası sayısı (tüm route'lar).</summary>
+        public List<Transform> GetAllSpawnPoints()
         {
-            int best = 0;
-            float bestDist = float.MaxValue;
-            for (int i = 0; i < _paths.Count; i++)
+            var list = new List<Transform>();
+            foreach (var data in _routes)
             {
-                if (_paths[i].Count == 0) continue;
-                float d = Vector3.Distance(worldPos, _paths[i][0]);
-                if (d < bestDist) { best = i; bestDist = d; }
+                if (data.spawnPoint != null) list.Add(data.spawnPoint);
             }
-            return best;
+            return list;
         }
     }
 }
