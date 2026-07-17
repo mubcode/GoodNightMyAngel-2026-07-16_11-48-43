@@ -322,30 +322,56 @@ namespace GoodNightMyAngel.EditorTools
             dcGo.AddComponent<DebugConsole>();
 
             // -----------------------------------------------------------------
-            // 14) PathManager (Fields Runner 2 tarzı yol sistemi)
+            // 14) PathManager + örnek manuel waypoint
+            // -----------------------------------------------------------------
+            // Kullaniciya ornek bir yol hazirliyoruz: "Waypoint_1" adinda
+            // bir parent, altinda 3 cylinder "Point_0..2" ile.
+            // Kullanici bunlari surukleyerek kendi güzergahini cizebilir.
+            // PathManager.startPoints'e otomatik atanir.
             // -----------------------------------------------------------------
             var pathMgr = new GameObject("PathManager");
             var pm = pathMgr.AddComponent<PathManager>();
             pm.bed = bedComp;
-            // Başlangıç waypoint'leri oluştur (her spawn noktası için)
             pm.startPoints = new System.Collections.Generic.List<PathWaypoint>();
-            for (int i = 0; i < spawnList.Count; i++)
+
+            // Örnek waypoint_1: parent (PathWaypoint component'i tasiyacak)
+            var waypoint1 = new GameObject("Waypoint_1");
+            waypoint1.transform.position = new Vector3(0, 0, 8);  // yatagin kuzeyinde
+            var wp1 = waypoint1.AddComponent<PathWaypoint>();
+            wp1.gizmoColor = new Color(0.3f, 1f, 0.5f, 0.9f);   // yesil gizmo
+
+            // 3 child point (cylinder olarak olusturulur, gizli flagli)
+            // Point_0: spawn noktasi (en kuzey)
+            // Point_1: orta
+            // Point_2: yataga en yakin
+            Vector3[] pointOffsets = new Vector3[]
             {
-                var go = new GameObject($"PathStart_{i}");
-                go.transform.position = spawnList[i].position;
-                go.AddComponent<PathWaypoint>();
-                var wp = go.GetComponent<PathWaypoint>();
-                // Orta waypoint (yolun ortasında küçük bir kıvrım)
-                var midGo = new GameObject($"PathMid_{i}");
-                Vector3 midPos = Vector3.Lerp(spawnList[i].position, bed.transform.position, 0.55f);
-                midPos.x += Random.Range(-3f, 3f);
-                midPos.z += Random.Range(-1f, 1f);
-                midGo.transform.position = midPos;
-                var midWp = midGo.AddComponent<PathWaypoint>();
-                wp.next = midWp;
-                // midWp.next = null (otomatik olarak bed'e gider)
-                pm.startPoints.Add(wp);
+                new Vector3(-3, 0, 10),   // Point_0 (en uzak, kuzey)
+                new Vector3(-2, 0, 5),    // Point_1 (orta)
+                new Vector3(-1, 0, 1),    // Point_2 (yataga yakin)
+            };
+            for (int i = 0; i < pointOffsets.Length; i++)
+            {
+                var pt = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                pt.name = $"Point_{i}";
+                pt.transform.SetParent(waypoint1.transform, false);
+                pt.transform.position = waypoint1.transform.position + pointOffsets[i];
+                pt.transform.localScale = new Vector3(0.4f, 1f, 0.4f);  // ince uzun
+                // Collider kaldir (sahne fizigini etkilemesin)
+                var col = pt.GetComponent<Collider>();
+                if (col != null) Object.DestroyImmediate(col);
+                // Renk: mor/magenta (görünür olsun)
+                var ptMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                ptMat.color = new Color(0.8f, 0.2f, 0.8f);
+                pt.GetComponent<Renderer>().sharedMaterial = ptMat;
             }
+
+            pm.startPoints.Add(wp1);
+            // Ileride Waypoint_2, Waypoint_3 de eklenebilir:
+            // 1) Bos GameObject olustur, "Waypoint_2" adini ver
+            // 2) PathWaypoint component'i ekle
+            // 3) Ic Point_X objeleri koy
+            // 4) PathManager.startPoints listesine surukle
 
             // -----------------------------------------------------------------
             // 15) Minimap
@@ -412,9 +438,12 @@ namespace GoodNightMyAngel.EditorTools
                 "ControlsPanel",
                 "PausePanel",
                 "__BuildPathLines",
+                // Eski sistem objeleri
                 "PathStart_0", "PathStart_1", "PathStart_2", "PathStart_3", "PathStart_4",
                 "PathStart_Auto_0", "PathStart_Auto_1", "PathStart_Auto_2", "PathStart_Auto_3", "PathStart_Auto_4",
                 "PathMid_0", "PathMid_1", "PathMid_2", "PathMid_3", "PathMid_4",
+                // Yeni sistem örnek objesi
+                "Waypoint_1",
             };
 
             foreach (var name in toDelete)
@@ -424,8 +453,22 @@ namespace GoodNightMyAngel.EditorTools
             }
 
             // Waypoint'ler (PathWaypoint component'i olan tüm objeler)
+            // — hem "Waypoint_X" parentları hem de altlarındaki Point_X
+            // child'ları tekrar tekrar silinmesin diye recursive yok, sadece
+            // component tasiyan parentlari siliyoruz (cocuklariyla birlikte).
             var wps = Object.FindObjectsByType<PathWaypoint>(FindObjectsSortMode.None);
             foreach (var wp in wps) if (wp != null) Object.DestroyImmediate(wp.gameObject);
+
+            // Yine de kalan Point_X (PathWaypoint component'i tasimayan)
+            // child objelerini de temizle
+            var stalePoints = new System.Collections.Generic.List<GameObject>();
+            foreach (var go in Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None))
+            {
+                if (go == null) continue;
+                if (go.name.StartsWith("Point_") && go.transform.parent == null)
+                    stalePoints.Add(go);
+            }
+            foreach (var p in stalePoints) Object.DestroyImmediate(p);
 
             // PathLine'lar (PathManager ve BuildManager altındaki)
             foreach (var plName in new[] { "PathLine_0", "PathLine_1", "PathLine_2", "PathLine_3", "PathLine_4" })
