@@ -81,26 +81,31 @@ namespace GoodNightMyAngel.Enemies
                 bed = GameManager.Instance.bed;
             if (bed == null)
             {
-                bed = FindFirstObjectByType<Bed>();
+                bed = Object.FindFirstObjectByType<Bed>();
             }
 
-            // Eğer manuel liste boşsa sahnede ara
+            // startPoints boşsa sahnede PathWaypoint'leri ara
+            // Sadece "yolun başlangıcı" olanları al:
+            //   - next zincirinin başı (next==null ve child yok) VEYA
+            //   - child'ları olan (kullanıcı manuel waypoint oluşturmuş)
             if (startPoints.Count == 0)
             {
-                var found = FindObjectsByType<PathWaypoint>(FindObjectsSortMode.None);
-                // Sadece "next"i olmayanlar (yol başlangıçları)
-                foreach (var wp in found)
+                var all = Object.FindObjectsByType<PathWaypoint>(FindObjectsSortMode.None);
+                foreach (var wp in all)
                 {
-                    if (wp != null && wp.next == null) startPoints.Add(wp);
+                    if (wp == null) continue;
+                    bool isPathStart = wp.next == null;   // zincirin başı
+                    bool hasChildren = wp.transform.childCount > 0;   // child point'ler var
+                    if (isPathStart || hasChildren)
+                        startPoints.Add(wp);
                 }
-                // Eğer hiç waypoint yoksa otomatik oluştur
-                if (startPoints.Count == 0)
-                {
-                    if (DebugOverlay.Instance != null)
-                        DebugOverlay.Instance.Log(LogCategory.Enemy,
-                            "Hiç waypoint yok, otomatik oluşturuluyor.", true);
-                    AutoCreatePathsFromSpawnPoints();
-                }
+            }
+
+            // Eğer hâlâ hiç waypoint yoksa kullanıcıya bildir (otomatik oluşturma YOK)
+            if (startPoints.Count == 0 && DebugOverlay.Instance != null)
+            {
+                DebugOverlay.Instance.Log(LogCategory.Enemy,
+                    "Hiç waypoint yok. Sahneye manuel olarak 'PathWaypoint' ekleyin.", true);
             }
 
             BuildPaths();
@@ -113,36 +118,12 @@ namespace GoodNightMyAngel.Enemies
         }
 
         // -------------------------------------------------------------------------
-        // OTOMATİK YOL OLUŞTURMA
-        // -------------------------------------------------------------------------
-        // Eğer sahnede waypoint yoksa, GameManager'ın spawn noktalarından
-        // yatağa doğru tek-noktalı yol oluşturur.
-        // -------------------------------------------------------------------------
-        private void AutoCreatePathsFromSpawnPoints()
-        {
-            if (GameManager.Instance == null) return;
-            var sps = GameManager.Instance.enemySpawnPoints;
-            if (sps == null || sps.Length == 0) return;
-            if (bed == null) return;
-
-            for (int i = 0; i < sps.Length; i++)
-            {
-                var sp = sps[i];
-                if (sp == null) continue;
-                var go = new GameObject($"PathStart_Auto_{i}");
-                go.transform.position = sp.position;
-                var wp = go.AddComponent<PathWaypoint>();
-                wp.gizmoColor = new Color(0.3f, 0.7f, 1f, 0.9f);
-                startPoints.Add(wp);
-            }
-
-            if (DebugOverlay.Instance != null)
-                DebugOverlay.Instance.Log(LogCategory.Enemy,
-                    $"{startPoints.Count} otomatik yol başlangıcı oluşturuldu.", false);
-        }
-
-        // -------------------------------------------------------------------------
         // YOL İNŞASI
+        // -------------------------------------------------------------------------
+        // Her startPoints içindeki PathWaypoint için:
+        //   - Eğer 'next' zinciri varsa, onu takip et
+        //   - Yoksa child'ları sırayla ekle (siblings order)
+        // Son olarak yatak pozisyonu eklenir.
         // -------------------------------------------------------------------------
         private void BuildPaths()
         {
@@ -150,17 +131,16 @@ namespace GoodNightMyAngel.Enemies
             foreach (var start in startPoints)
             {
                 if (start == null) continue;
-                var path = new List<Vector3>();
-                var current = start;
-                int safety = 100;     // sonsuz döngü koruması
-                while (current != null && safety-- > 0)
-                {
-                    path.Add(current.transform.position);
-                    if (current.next == null) break;
-                    current = current.next;
-                }
+                // YENİ: GetPathPoints() child'ları da dahil eder
+                var path = start.GetPathPoints();
                 if (bed != null) path.Add(bed.transform.position);
-                _paths.Add(path);
+                if (path.Count >= 2) _paths.Add(path);
+            }
+
+            if (DebugOverlay.Instance != null)
+            {
+                DebugOverlay.Instance.Log(LogCategory.Enemy,
+                    $"Toplam {_paths.Count} yol, {startPoints.Count} waypoint'ten oluşturuldu.", false);
             }
         }
 

@@ -416,10 +416,20 @@ namespace GoodNightMyAngel.EditorTools
         /// Önceki kurulumdan kalan tüm objeleri sahneden siler.
         /// Bu sahneyi temiz bir başlangıç durumuna getirir.
         /// </summary>
+        /// <summary>
+        /// Önceki kurulumdan kalan tüm objeleri sahneden siler.
+        /// Bu sahneyi temiz bir başlangıç durumuna getirir.
+        /// RECURSIVE: parent altındaki objeleri de bulur (GameObject.Find
+        /// sadece root'taki objeleri arar, bu yüzden sınırlı).
+        /// </summary>
         private static void ClearPreviousBuild()
         {
-            // Silinecek obje isimleri (sahne kurulumunda oluşturduklarımız)
-            string[] toDelete = new string[]
+            // Önce sahnede TÜM objeleri topla (recursive)
+            var allObjects = Object.FindObjectsByType<GameObject>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+            // Silinecek obje isimleri veya pattern'ler
+            string[] exactNames = new string[]
             {
                 "__Bootstrap",
                 "Ground",
@@ -438,46 +448,66 @@ namespace GoodNightMyAngel.EditorTools
                 "ControlsPanel",
                 "PausePanel",
                 "__BuildPathLines",
-                // Eski sistem objeleri
-                "PathStart_0", "PathStart_1", "PathStart_2", "PathStart_3", "PathStart_4",
-                "PathStart_Auto_0", "PathStart_Auto_1", "PathStart_Auto_2", "PathStart_Auto_3", "PathStart_Auto_4",
-                "PathMid_0", "PathMid_1", "PathMid_2", "PathMid_3", "PathMid_4",
-                // Yeni sistem örnek objesi
                 "Waypoint_1",
             };
 
-            foreach (var name in toDelete)
+            // Pattern ile silinecekler
+            string[] namePatterns = new string[]
             {
-                var found = GameObject.Find(name);
-                if (found != null) Object.DestroyImmediate(found);
-            }
+                "PathStart_", "PathStart_Auto_", "PathMid_",
+                "EnemyPath_", "PathLine_",
+            };
 
-            // Waypoint'ler (PathWaypoint component'i olan tüm objeler)
-            // — hem "Waypoint_X" parentları hem de altlarındaki Point_X
-            // child'ları tekrar tekrar silinmesin diye recursive yok, sadece
-            // component tasiyan parentlari siliyoruz (cocuklariyla birlikte).
-            var wps = Object.FindObjectsByType<PathWaypoint>(FindObjectsSortMode.None);
-            foreach (var wp in wps) if (wp != null) Object.DestroyImmediate(wp.gameObject);
+            // Tüm GameObject'leri gez ve sil
+            // (önce cocuklari sil, sonra parentlari — DestroyImmediate parent altindaki child'lari da siler)
+            // Biz once topla, sonra hepsini silelim
+            var toDestroy = new System.Collections.Generic.List<GameObject>();
 
-            // Yine de kalan Point_X (PathWaypoint component'i tasimayan)
-            // child objelerini de temizle
-            var stalePoints = new System.Collections.Generic.List<GameObject>();
-            foreach (var go in Object.FindObjectsByType<GameObject>(FindObjectsSortMode.None))
+            foreach (var go in allObjects)
             {
                 if (go == null) continue;
-                if (go.name.StartsWith("Point_") && go.transform.parent == null)
-                    stalePoints.Add(go);
-            }
-            foreach (var p in stalePoints) Object.DestroyImmediate(p);
 
-            // PathLine'lar (PathManager ve BuildManager altındaki)
-            foreach (var plName in new[] { "PathLine_0", "PathLine_1", "PathLine_2", "PathLine_3", "PathLine_4" })
+                bool shouldDestroy = false;
+
+                // Tam isim kontrolü
+                foreach (var name in exactNames)
+                {
+                    if (go.name == name) { shouldDestroy = true; break; }
+                }
+
+                // Pattern kontrolü
+                if (!shouldDestroy)
+                {
+                    foreach (var pat in namePatterns)
+                    {
+                        if (go.name.StartsWith(pat)) { shouldDestroy = true; break; }
+                    }
+                }
+
+                // Point_X objeleri (PathWaypoint component'i olmayan ama Point_X adli)
+                if (!shouldDestroy && go.name.StartsWith("Point_"))
+                {
+                    shouldDestroy = true;
+                }
+
+                // PathLine_0, PathLine_1, ... (PathManager altinda)
+                if (!shouldDestroy && go.GetComponent<LineRenderer>() != null &&
+                    go.transform.parent != null &&
+                    go.transform.parent.name == "PathManager")
+                {
+                    shouldDestroy = true;
+                }
+
+                if (shouldDestroy) toDestroy.Add(go);
+            }
+
+            // Tum objeleri sil
+            foreach (var go in toDestroy)
             {
-                var found = GameObject.Find(plName);
-                if (found != null) Object.DestroyImmediate(found);
+                if (go != null) Object.DestroyImmediate(go);
             }
 
-            Debug.Log("[SceneBuilder] Eski sahne objeleri temizlendi.");
+            Debug.Log($"[SceneBuilder] Eski sahne objeleri temizlendi ({toDestroy.Count} obje silindi).");
         }
 
 
